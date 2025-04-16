@@ -1,0 +1,11 @@
+name: "Healthcheck Scheduler"
+description: "Schedules healthchecks based on time of last delivery"
+author: "Your Name"
+inputs:
+  max-staleness:
+    description: "How many months can we go without scheduling a healthcheck" 
+    required: false
+    default: "3"
+runs:
+  using: "node16"
+  main: "dist/index.js"
