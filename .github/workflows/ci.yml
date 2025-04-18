@@ -6,24 +6,27 @@ on:
       - '**' # Runs on all branches
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        node-version: [20.x] # Test specifically with Node.js 20
+
     steps:
-      # Step 1: Check out the repository
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16' # Specify the Node.js version (adjust as needed)
+          node-version: ${{ matrix.node-version }}
 
-      # Step 3: Install dependencies
       - name: Install dependencies
         run: npm install
 
-      # Step 4: Run tests
+      - name: Run lint
+        run: npm run lint
+
       - name: Run tests
         run: npm test

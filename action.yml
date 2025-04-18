@@ -3,9 +3,12 @@ description: "Schedules healthchecks based on time of last delivery"
 author: "Your Name"
 inputs:
   max-staleness:
-    description: "How many months can we go without scheduling a healthcheck" 
+    description: "How many months can we go without scheduling a healthcheck"
     required: false
     default: "3"
 runs:
-  using: "node16"
+  using: "node20"
   main: "dist/index.js"
+branding:
+  icon: "clock"
+  color: "blue"
