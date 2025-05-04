@@ -1,0 +1,34 @@
+name: "Healthcheck Reminder"
+description: "Takes action when an enterprise healthcheck is coming due"
+author: "Carlton Brown"
+inputs:
+  max-staleness-days:
+    description: "Initiate action when a healthcheck is N days old"
+    required: false
+    default: "60"
+  dir-path:
+    description: "The relative path to search for historical healthcheck files"
+    required: true
+  hc-data-repo:
+    description: "The repository containing healthcheck historical healthcheck files"
+    required: true
+  hc-data-secret:
+    description:  "Token for retrieval of historical healthcheck data"
+    required: true
+  github-token:
+    description: "GitHub token for authentication"
+    required: true
+  dry-run:
+    description: "If true, the action will simulate changes without making updates"
+    required: false
+    default: false
+secrets:
+  HC_DATA_SECRET:
+    description: "Personal access token for accessing the healthcheck data repository"
+    required: true
+runs:
+  using: "node20"
+  main: "dist/index.js"
+branding:
+  icon: "clock"
+  color: "blue"
