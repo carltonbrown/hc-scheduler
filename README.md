@@ -1,5 +1,7 @@
 ## Healthcheck scheduler
 
+foo
+
 This GitHub Action scans `github/helphub-knowledge-base` for healthchecks that are coming due.
 
 ## To do
