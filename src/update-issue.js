@@ -11,7 +11,7 @@ function composeNotificationComment(enterpriseIssue) {
   let baseMessage;
 
   if (last_healthcheck_date === null) {
-    baseMessage = `The ${enterprise_slug} enterprise is due for a health check because it's never had one.`;
+    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because it's never had one.`;
   } else {
     const healthcheckDate = new Date(last_healthcheck_date);
     if (isNaN(healthcheckDate)) {
@@ -27,7 +27,7 @@ function composeNotificationComment(enterpriseIssue) {
       day: 'numeric',
     }).format(healthcheckDate);
 
-    baseMessage = `The ${enterprise_slug} enterprise is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
+    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
   }
 
   const assigneeMentions = assignees.length > 0
@@ -48,14 +48,14 @@ function composeNotificationComment(enterpriseIssue) {
  * @param {boolean} isDryRun - If true, the function will only log the comment instead of posting it.
  * @returns {Promise<void>} - A promise that resolves when the comment is added or logged.
  */
-async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false) {
+async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1) {
   try {
     const octokit = github.getOctokit(token);
 
     let notificationComment = composeNotificationComment(enterpriseIssue);
 
     if (isDryRun) {
-      console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number}: ${notificationComment}`);
+      console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`);
     } else {
       await octokit.rest.issues.createComment({
         owner: repoOwner,
@@ -63,7 +63,9 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
         issue_number: enterpriseIssue.number,
         body: notificationComment,
       });
+
       console.log(`Commented on issue #${enterpriseIssue.number}: ${notificationComment}`);
+      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
   } catch (error) {
     console.error(`Failed to update issue #${enterpriseIssue.number}: ${error.message}`);

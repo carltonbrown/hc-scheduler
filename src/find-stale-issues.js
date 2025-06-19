@@ -1,58 +1,49 @@
 /**
- * Finds issues that have no non-stale healthchecks.
+ * Finds issues that have no recent healthchecks (older than maxStalenessInDays).
+ * Extracts the enterprise slug from the issue title (format: "slug - number").
  * @param {Array} healthchecks - The list of all healthchecks.
  * @param {Array} issues - The list of issues.
  * @param {number} maxStalenessInDays - The maximum number of days for a healthcheck to be considered non-stale.
- * @returns {Array} - The filtered list of issues with last_healthcheck_date added where applicable.
+ * @returns {Array} - The filtered list of issues with last_healthcheck_date and days_since_healthcheck.
  */
 function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
   const now = new Date();
 
-  return issues
-    .filter((issue) => {
-      // Skip issues where skip_healthcheck is true
-      if (issue.skip_healthcheck) {
-        return false;
+  const results = issues
+    .filter(issue => !issue.skip_healthcheck)
+    .map(issue => {
+      const [enterpriseSlug] = issue.title.split(/\s*-\s*/);
+      // Match healthchecks to this issue by enterprise_slug
+      const matchingHealthchecks = healthchecks.filter(
+        hc => hc.enterprise_slug === enterpriseSlug
+      );
+
+      // Find the most recent healthcheck
+      const mostRecentHealthcheck = matchingHealthchecks
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+      let last_healthcheck_date = null;
+      let days_since_healthcheck = null;
+
+      if (mostRecentHealthcheck) {
+        last_healthcheck_date = mostRecentHealthcheck.date;
+        days_since_healthcheck = Math.floor((now - new Date(last_healthcheck_date)) / (1000 * 60 * 60 * 24));
       }
-
-      // Find all healthchecks for the issue's enterprise_slug
-      const matchingHealthchecks = healthchecks.filter(
-        (healthcheck) => healthcheck.enterprise_slug === issue.enterprise_slug
-      );
-
-      // Check if there are any non-stale healthchecks
-      const hasNonStaleHealthcheck = matchingHealthchecks.some((healthcheck) => {
-        const healthcheckDate = new Date(healthcheck.date);
-        const ageInDays = (now - healthcheckDate) / (1000 * 60 * 60 * 24);
-        return ageInDays <= maxStalenessInDays; // Non-stale if within maxStalenessInDays
-      });
-
-      return !hasNonStaleHealthcheck; // Include issue if no non-stale healthchecks exist
-    })
-    .map((issue) => {
-      // Find the most recent stale healthcheck (if any)
-      const matchingHealthchecks = healthchecks.filter(
-        (healthcheck) => healthcheck.enterprise_slug === issue.enterprise_slug
-      );
-
-      const mostRecentStaleHealthcheck = matchingHealthchecks
-        .filter((healthcheck) => {
-          const healthcheckDate = new Date(healthcheck.date);
-          const ageInDays = (now - healthcheckDate) / (1000 * 60 * 60 * 24);
-          return ageInDays > maxStalenessInDays; // Stale if older than maxStalenessInDays
-        })
-        .sort((a, b) => new Date(b.date) - new Date(a.date))[0]; // Get the most recent stale healthcheck
-
-      // Set last_healthcheck_date to the date of the most recent stale healthcheck, or null if none exist
-      const healthcheckDate = mostRecentStaleHealthcheck
-        ? mostRecentStaleHealthcheck.date
-        : null;
 
       return {
         ...issue,
-        last_healthcheck_date: healthcheckDate, // Add the new field
+        enterprise_slug: enterpriseSlug,
+        last_healthcheck_date,
+        days_since_healthcheck,
       };
-    });
+    })
+    .filter(issue =>
+      // Only include issues where the last healthcheck is stale or missing
+      issue.last_healthcheck_date === null ||
+      issue.days_since_healthcheck > maxStalenessInDays
+    );
+
+  return results;
 }
 
 module.exports = { findStaleIssues };

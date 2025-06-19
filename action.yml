@@ -6,6 +6,21 @@ inputs:
     description: "Initiate action when a healthcheck is N days old"
     required: false
     default: "60"
+  issues-project-org:
+    description: "The owner of the V2 project to query for notifiable issues"
+    required: true
+  issues-project-repo:
+    description: "The repo containing notifiable issues"
+    required: true
+  issues-project-number:
+    description:  "The id of the V2 project to query for notifiable issues"
+    required:  true
+  notifiable-issue-status:
+    description:  "The status of notifiable issues"
+    required: false
+  notifiable-issue-state:
+    description: "The state of notifiable issues"
+    required: false
   dir-path:
     description: "The relative path to search for historical healthcheck files"
     required: true

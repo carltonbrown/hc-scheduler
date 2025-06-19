@@ -2,7 +2,6 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const { execSync } = require('child_process');
 const { loadHealthChecks } = require('./load-hc');
-const { findCheckableIssues } = require('./fetch-checkable-issues');
 const { findStaleIssues } = require('./find-stale-issues');
 const { updateIssue } = require('./update-issue');
 const fs = require('fs');
@@ -24,41 +23,138 @@ function cloneRepo(token, repo, targetDir) {
 }
 
 /**
- * Fetches all issues in the repository using pagination.
- * @param {string} token - The GitHub token for authentication.
- * @param {string} repoOwner - The owner of the repository.
- * @param {string} repoName - The name of the repository.
- * @param {string} state - The state of the issues to fetch (default is 'open').
- * @returns {Promise<Array>} - A promise that resolves to the list of all issues.
+ * Maps issues to a more convenient data structure, adding skip_healthcheck based on the skipLabel.
+ * @param {Array} issues - Array of issue objects.
+ * @param {string} skipLabel - The label to check for skipping healthchecks.
+ * @returns {Array} - Array of mapped issue objects.
  */
-async function fetchIssues(token, repoOwner, repoName, state = 'open') {
+function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
+  const results = issues.map((issue) => {
+    const skipHealthcheck = issue.labels.some((label) =>
+      typeof label === 'string' ? label === skipLabel : label.name === skipLabel
+    );
+
+    return {
+      number: issue.number,
+      title: issue.title,
+      assignees: issue.assignees,
+      labels: issue.labels,
+      skip_healthcheck: skipHealthcheck,
+    };
+  });
+  return results;
+}
+
+/**
+ * Fetches issues from a GitHub Projects (v2/Next Gen) board using GraphQL.
+ * Only returns issues with the specified project Status, issue state, and at least one assignee.
+ * 
+ * @param {string} token - The GitHub token for authentication.
+ * @param {string} org - The organization login (required).
+ * @param {number} projectNumber - The project number (not ID).
+ * @param {string} issueStatus - The project Status field value to match (default: "Active").
+ * @param {string} issueState - The GitHub issue state to match (default: "OPEN").
+ * @returns {Promise<Array>} - A promise that resolves to an array of matching issues.
+ */
+async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus = "Active", issueState = "OPEN") {
+  if (!org) throw new Error("Organization (org) is required");
   const octokit = github.getOctokit(token);
-  const perPage = 100; 
-  let page = 1;
-  let allIssues = [];
-
-  try {
-    while (true) {
-      const { data: issues } = await octokit.rest.issues.listForRepo({
-        owner: repoOwner,
-        repo: repoName,
-        state: state,
-        per_page: perPage,
-        page: page,
-      });
-
-      allIssues = allIssues.concat(issues);
-
-      if (issues.length < perPage) {
-        break;
+  const query = `
+    query ($org: String!, $projectNumber: Int!, $after: String) {
+      organization(login: $org) {
+        projectV2(number: $projectNumber) {
+          items(first: 100, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              content {
+                ... on Issue {
+                  title
+                  number
+                  url
+                  state
+                  assignees(first: 10) {
+                    nodes { login }
+                  }
+                  labels(first: 20) {
+                    nodes { name }
+                  }
+                }
+              }
+              fieldValues(first: 20) {
+                nodes {
+                  ... on ProjectV2ItemFieldSingleSelectValue {
+                    field {
+                      ... on ProjectV2FieldCommon {
+                        name
+                      }
+                    }
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
       }
-
-      page++;
     }
-    return allIssues;
-  } catch (error) {
-    throw new Error(`Failed to fetch issues: ${error.message}`);
+  `;
+
+  let after = null;
+  let issues = [];
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const variables = {
+      org,
+      projectNumber: Number(projectNumber),
+      after,
+    };
+
+    const response = await octokit.graphql(query, variables);
+
+    const items = response.organization?.projectV2?.items?.nodes || [];
+
+    // TODO: Go back and determine if this can be gotten from the GraphQL query
+    for (const item of items) {
+      const issue = item.content;
+      if (
+        issue &&
+        issue.state === issueState &&
+        Array.isArray(issue.assignees?.nodes) &&
+        issue.assignees.nodes.length > 0
+      ) {
+        // Find the Status field value
+        const statusField = item.fieldValues.nodes.find(
+          (field) =>
+            field &&
+            field.field &&
+            field.field.name === "Status" &&
+            field.name === issueStatus
+        );
+        if (statusField) {
+          issues.push({
+            id: item.id,
+            title: issue.title,
+            number: issue.number,
+            url: issue.url,
+            state: issue.state,
+            assignees: issue.assignees.nodes.map(a => a.login),
+            labels: issue.labels.nodes.map(l => l.name),
+            status: statusField.name,
+          });
+        }
+      }
+    }
+
+    hasNextPage = response.organization?.projectV2?.items?.pageInfo?.hasNextPage;
+    after = response.organization?.projectV2?.items?.pageInfo?.endCursor;
   }
+
+  return issues;
 }
 
 async function run() {
@@ -69,15 +165,18 @@ async function run() {
     const dryRun = core.getInput('dry-run') === 'true';
     const dirPath = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
-    const { owner: repoOwner, repo: repoName } = github.context.repo;
+    const projectNumber = core.getInput('issues-project-number', { required: true });
+    const projectOrg = core.getInput('issues-project-org', { required: true });
+    const projectRepo = core.getInput('issues-project-repo', { required: true });
+    const issueStatus = core.getInput('notifiable-issue-status');
+    const issueState = core.getInput('notifiable-issue-state');
 
-    console.log('Fetching all issues from the repository:');
-    const issues = await fetchIssues(ghToken, repoOwner, repoName);
+    console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
+    const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
     console.log(`Fetched ${issues.length} issues.`);
 
-    console.log('Fetching checkable customer issues:');
-    const checkableIssues = findCheckableIssues(issues); 
-    console.log(`Filtered ${checkableIssues.length} checkable issues.`);
+
+    const checkableIssues = mapCheckableIssues(issues)
 
     const dataCheckoutDir = './hc-data-checkout';
 
@@ -87,46 +186,19 @@ async function run() {
 
     const allHealthchecks = loadHealthChecks(dataCheckoutDir);
 
-    console.log(`Found ${allHealthchecks.length} healthchecks.`);
+    console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
-    console.log('Finding customer issues needing healthchecks:');
+    console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of staleIssues) {
-      await updateIssue(ghToken, repoOwner, repoName, enterpriseIssue, dryRun);
+      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun);
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);
   }
-}name: "Notify when healthchecks are due"
-
-on:
-  workflow_dispatch: # Allows manual triggering of the workflow
-
-  schedule:
-    - cron: '0 19 * * *' # Runs daily at 19:00 UTC (6:00 AM Sydney time during daylight saving)
-
-jobs:
-  healthcheck:
-    runs-on: ubuntu-latest
-
-    permissions:
-      issues: write
-      contents: read
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Run Healthcheck Scheduler Action
-        uses: carltonbrown/hc-scheduler@main
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          hc-data-secret: ${{ secrets.HC_DATA_SECRET }}
-          max-staleness-days: "60"
-          hc-data-repo: "github/helphub-knowledge-base"
-          dir-path: "./premium/health-checks"
-          dry-run: true
+}
 
 run();

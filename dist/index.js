@@ -34022,109 +34022,59 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
-/***/ 6749:
-/***/ ((module) => {
-
-/**
- * Filters a list of issues to extract checkable issues.
- * @param {Array} issues - The list of issues to filter.
- * @param {string} skipLabel - The label used to identify issues to skip (default is 'skip-hc').
- * @returns {Array} - A list of filtered and restructured issues.
- */
-function findCheckableIssues(issues, skipLabel = 'skip-hc') {
-  // Define the regex pattern for extracting enterprise_slug and enterprise_id
-  const titleRegex = /^\s*([\w-]+)\s*-\s*(\d+)\s*$/;
-
-  // Map the issues to a smaller data structure
-  const restructuredIssues = issues.map((issue) => {
-    const match = issue.title.match(titleRegex); // Match the title against the regex
-    const enterprise_slug = match ? match[1] : null; // Extract enterprise_slug (group 1)
-    const enterprise_id = match ? parseInt(match[2], 10) : null; // Extract enterprise_id (group 2) and convert to number
-
-    // Check if the issue has the skip label
-    const skipHealthcheck = issue.labels.some((label) =>
-      typeof label === 'string' ? label === skipLabel : label.name === 'skip-hc'
-    );
-
-    return {
-      number: issue.number,
-      title: issue.title,
-      assignees: issue.assignees.map((assignee) => assignee.login), // Extract assignee usernames
-      enterprise_slug, // Add extracted enterprise_slug
-      enterprise_id,   // Add extracted enterprise_id
-      skip_healthcheck: skipHealthcheck, // Add skip_healthcheck field
-    };
-  });
-
-  // Return the list of filtered issues
-  return restructuredIssues;
-}
-
-module.exports = { findCheckableIssues };
-
-/***/ }),
-
 /***/ 8375:
 /***/ ((module) => {
 
 /**
- * Finds issues that have no non-stale healthchecks.
+ * Finds issues that have no recent healthchecks (older than maxStalenessInDays).
+ * Extracts the enterprise slug from the issue title (format: "slug - number").
  * @param {Array} healthchecks - The list of all healthchecks.
  * @param {Array} issues - The list of issues.
  * @param {number} maxStalenessInDays - The maximum number of days for a healthcheck to be considered non-stale.
- * @returns {Array} - The filtered list of issues with last_healthcheck_date added where applicable.
+ * @returns {Array} - The filtered list of issues with last_healthcheck_date and days_since_healthcheck.
  */
 function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
   const now = new Date();
 
-  return issues
-    .filter((issue) => {
-      // Skip issues where skip_healthcheck is true
-      if (issue.skip_healthcheck) {
-        return false;
+  const results = issues
+    .filter(issue => !issue.skip_healthcheck)
+    .map(issue => {
+      const [enterpriseSlug] = issue.title.split(/\s*-\s*/);
+      // Match healthchecks to this issue by enterprise_slug
+      const matchingHealthchecks = healthchecks.filter(
+        hc => hc.enterprise_slug === enterpriseSlug
+      );
+
+      // Find the most recent healthcheck
+      const mostRecentHealthcheck = matchingHealthchecks
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+      let last_healthcheck_date = null;
+      let days_since_healthcheck = null;
+
+      if (mostRecentHealthcheck) {
+        last_healthcheck_date = mostRecentHealthcheck.date;
+        days_since_healthcheck = Math.floor((now - new Date(last_healthcheck_date)) / (1000 * 60 * 60 * 24));
       }
-
-      // Find all healthchecks for the issue's enterprise_slug
-      const matchingHealthchecks = healthchecks.filter(
-        (healthcheck) => healthcheck.enterprise_slug === issue.enterprise_slug
-      );
-
-      // Check if there are any non-stale healthchecks
-      const hasNonStaleHealthcheck = matchingHealthchecks.some((healthcheck) => {
-        const healthcheckDate = new Date(healthcheck.date);
-        const ageInDays = (now - healthcheckDate) / (1000 * 60 * 60 * 24);
-        return ageInDays <= maxStalenessInDays; // Non-stale if within maxStalenessInDays
-      });
-
-      return !hasNonStaleHealthcheck; // Include issue if no non-stale healthchecks exist
-    })
-    .map((issue) => {
-      // Find the most recent stale healthcheck (if any)
-      const matchingHealthchecks = healthchecks.filter(
-        (healthcheck) => healthcheck.enterprise_slug === issue.enterprise_slug
-      );
-
-      const mostRecentStaleHealthcheck = matchingHealthchecks
-        .filter((healthcheck) => {
-          const healthcheckDate = new Date(healthcheck.date);
-          const ageInDays = (now - healthcheckDate) / (1000 * 60 * 60 * 24);
-          return ageInDays > maxStalenessInDays; // Stale if older than maxStalenessInDays
-        })
-        .sort((a, b) => new Date(b.date) - new Date(a.date))[0]; // Get the most recent stale healthcheck
-
-      // Set last_healthcheck_date to the date of the most recent stale healthcheck, or null if none exist
-      const healthcheckDate = mostRecentStaleHealthcheck
-        ? mostRecentStaleHealthcheck.date
-        : null;
 
       return {
         ...issue,
-        last_healthcheck_date: healthcheckDate, // Add the new field
+        enterprise_slug: enterpriseSlug,
+        last_healthcheck_date,
+        days_since_healthcheck,
       };
-    });
+    })
+    .filter(issue =>
+      // Only include issues where the last healthcheck is stale or missing
+      issue.last_healthcheck_date === null ||
+      issue.days_since_healthcheck > maxStalenessInDays
+    );
+
+  return results;
 }
 
 module.exports = { findStaleIssues };
+
 
 /***/ }),
 
@@ -34250,7 +34200,7 @@ function composeNotificationComment(enterpriseIssue) {
   let baseMessage;
 
   if (last_healthcheck_date === null) {
-    baseMessage = `The ${enterprise_slug} enterprise is due for a health check because it's never had one.`;
+    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because it's never had one.`;
   } else {
     const healthcheckDate = new Date(last_healthcheck_date);
     if (isNaN(healthcheckDate)) {
@@ -34266,7 +34216,7 @@ function composeNotificationComment(enterpriseIssue) {
       day: 'numeric',
     }).format(healthcheckDate);
 
-    baseMessage = `The ${enterprise_slug} enterprise is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
+    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
   }
 
   const assigneeMentions = assignees.length > 0
@@ -34287,14 +34237,14 @@ function composeNotificationComment(enterpriseIssue) {
  * @param {boolean} isDryRun - If true, the function will only log the comment instead of posting it.
  * @returns {Promise<void>} - A promise that resolves when the comment is added or logged.
  */
-async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false) {
+async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1) {
   try {
     const octokit = github.getOctokit(token);
 
     let notificationComment = composeNotificationComment(enterpriseIssue);
 
     if (isDryRun) {
-      console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number}: ${notificationComment}`);
+      console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`);
     } else {
       await octokit.rest.issues.createComment({
         owner: repoOwner,
@@ -34302,7 +34252,9 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
         issue_number: enterpriseIssue.number,
         body: notificationComment,
       });
+
       console.log(`Commented on issue #${enterpriseIssue.number}: ${notificationComment}`);
+      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
   } catch (error) {
     console.error(`Failed to update issue #${enterpriseIssue.number}: ${error.message}`);
@@ -34311,6 +34263,7 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
 }
 
 module.exports = { updateIssue, composeNotificationComment };
+
 
 /***/ }),
 
@@ -36230,7 +36183,6 @@ const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const { execSync } = __nccwpck_require__(5317);
 const { loadHealthChecks } = __nccwpck_require__(1787);
-const { findCheckableIssues } = __nccwpck_require__(6749);
 const { findStaleIssues } = __nccwpck_require__(8375);
 const { updateIssue } = __nccwpck_require__(8818);
 const fs = __nccwpck_require__(9896);
@@ -36252,41 +36204,138 @@ function cloneRepo(token, repo, targetDir) {
 }
 
 /**
- * Fetches all issues in the repository using pagination.
- * @param {string} token - The GitHub token for authentication.
- * @param {string} repoOwner - The owner of the repository.
- * @param {string} repoName - The name of the repository.
- * @param {string} state - The state of the issues to fetch (default is 'open').
- * @returns {Promise<Array>} - A promise that resolves to the list of all issues.
+ * Maps issues to a more convenient data structure, adding skip_healthcheck based on the skipLabel.
+ * @param {Array} issues - Array of issue objects.
+ * @param {string} skipLabel - The label to check for skipping healthchecks.
+ * @returns {Array} - Array of mapped issue objects.
  */
-async function fetchIssues(token, repoOwner, repoName, state = 'open') {
+function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
+  const results = issues.map((issue) => {
+    const skipHealthcheck = issue.labels.some((label) =>
+      typeof label === 'string' ? label === skipLabel : label.name === skipLabel
+    );
+
+    return {
+      number: issue.number,
+      title: issue.title,
+      assignees: issue.assignees,
+      labels: issue.labels,
+      skip_healthcheck: skipHealthcheck,
+    };
+  });
+  return results;
+}
+
+/**
+ * Fetches issues from a GitHub Projects (v2/Next Gen) board using GraphQL.
+ * Only returns issues with the specified project Status, issue state, and at least one assignee.
+ * 
+ * @param {string} token - The GitHub token for authentication.
+ * @param {string} org - The organization login (required).
+ * @param {number} projectNumber - The project number (not ID).
+ * @param {string} issueStatus - The project Status field value to match (default: "Active").
+ * @param {string} issueState - The GitHub issue state to match (default: "OPEN").
+ * @returns {Promise<Array>} - A promise that resolves to an array of matching issues.
+ */
+async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus = "Active", issueState = "OPEN") {
+  if (!org) throw new Error("Organization (org) is required");
   const octokit = github.getOctokit(token);
-  const perPage = 100; 
-  let page = 1;
-  let allIssues = [];
-
-  try {
-    while (true) {
-      const { data: issues } = await octokit.rest.issues.listForRepo({
-        owner: repoOwner,
-        repo: repoName,
-        state: state,
-        per_page: perPage,
-        page: page,
-      });
-
-      allIssues = allIssues.concat(issues);
-
-      if (issues.length < perPage) {
-        break;
+  const query = `
+    query ($org: String!, $projectNumber: Int!, $after: String) {
+      organization(login: $org) {
+        projectV2(number: $projectNumber) {
+          items(first: 100, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              content {
+                ... on Issue {
+                  title
+                  number
+                  url
+                  state
+                  assignees(first: 10) {
+                    nodes { login }
+                  }
+                  labels(first: 20) {
+                    nodes { name }
+                  }
+                }
+              }
+              fieldValues(first: 20) {
+                nodes {
+                  ... on ProjectV2ItemFieldSingleSelectValue {
+                    field {
+                      ... on ProjectV2FieldCommon {
+                        name
+                      }
+                    }
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
       }
-
-      page++;
     }
-    return allIssues;
-  } catch (error) {
-    throw new Error(`Failed to fetch issues: ${error.message}`);
+  `;
+
+  let after = null;
+  let issues = [];
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const variables = {
+      org,
+      projectNumber: Number(projectNumber),
+      after,
+    };
+
+    const response = await octokit.graphql(query, variables);
+
+    const items = response.organization?.projectV2?.items?.nodes || [];
+
+    // TODO: Go back and determine if this can be gotten from the GraphQL query
+    for (const item of items) {
+      const issue = item.content;
+      if (
+        issue &&
+        issue.state === issueState &&
+        Array.isArray(issue.assignees?.nodes) &&
+        issue.assignees.nodes.length > 0
+      ) {
+        // Find the Status field value
+        const statusField = item.fieldValues.nodes.find(
+          (field) =>
+            field &&
+            field.field &&
+            field.field.name === "Status" &&
+            field.name === issueStatus
+        );
+        if (statusField) {
+          issues.push({
+            id: item.id,
+            title: issue.title,
+            number: issue.number,
+            url: issue.url,
+            state: issue.state,
+            assignees: issue.assignees.nodes.map(a => a.login),
+            labels: issue.labels.nodes.map(l => l.name),
+            status: statusField.name,
+          });
+        }
+      }
+    }
+
+    hasNextPage = response.organization?.projectV2?.items?.pageInfo?.hasNextPage;
+    after = response.organization?.projectV2?.items?.pageInfo?.endCursor;
   }
+
+  return issues;
 }
 
 async function run() {
@@ -36297,15 +36346,18 @@ async function run() {
     const dryRun = core.getInput('dry-run') === 'true';
     const dirPath = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
-    const { owner: repoOwner, repo: repoName } = github.context.repo;
+    const projectNumber = core.getInput('issues-project-number', { required: true });
+    const projectOrg = core.getInput('issues-project-org', { required: true });
+    const projectRepo = core.getInput('issues-project-repo', { required: true });
+    const issueStatus = core.getInput('notifiable-issue-status');
+    const issueState = core.getInput('notifiable-issue-state');
 
-    console.log('Fetching all issues from the repository:');
-    const issues = await fetchIssues(ghToken, repoOwner, repoName);
+    console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
+    const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
     console.log(`Fetched ${issues.length} issues.`);
 
-    console.log('Fetching checkable customer issues:');
-    const checkableIssues = findCheckableIssues(issues); 
-    console.log(`Filtered ${checkableIssues.length} checkable issues.`);
+
+    const checkableIssues = mapCheckableIssues(issues)
 
     const dataCheckoutDir = './hc-data-checkout';
 
@@ -36315,14 +36367,15 @@ async function run() {
 
     const allHealthchecks = loadHealthChecks(dataCheckoutDir);
 
-    console.log(`Found ${allHealthchecks.length} healthchecks.`);
+    console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
-    console.log('Finding customer issues needing healthchecks:');
+    console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of staleIssues) {
-      await updateIssue(ghToken, repoOwner, repoName, enterpriseIssue, dryRun);
+      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun);
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);
@@ -36330,6 +36383,7 @@ async function run() {
 }
 
 run();
+
 module.exports = __webpack_exports__;
 /******/ })()
 ;
