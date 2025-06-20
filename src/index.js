@@ -28,7 +28,7 @@ function cloneRepo(token, repo, targetDir) {
  * @param {string} skipLabel - The label to check for skipping healthchecks.
  * @returns {Array} - Array of mapped issue objects.
  */
-function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
+function mapCheckableIssues(issues, skipLabel) {
   const results = issues.map((issue) => {
     let skipHealthcheckNotification = false;
 
@@ -51,6 +51,7 @@ function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
       title: issue.title,
       assignees: issue.assignees,
       labels: issue.labels,
+      url:  issue.url,
       skip_healthcheck_notification: skipHealthcheckNotification,
     };
   });
@@ -190,7 +191,7 @@ async function run() {
     const ghToken = core.getInput('github-token', { required: true });
     const hcDataSecret = core.getInput('hc-data-secret', { required: true });
     const dryRun = core.getInput('dry-run') === 'true';
-    const dirPath = core.getInput('dir-path');
+    const hcSubDir = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
     const projectNumber = core.getInput('issues-project-number', { required: true });
     const projectOrg = core.getInput('issues-project-org', { required: true });
@@ -198,13 +199,14 @@ async function run() {
     const issueStatus = core.getInput('notifiable-issue-status');
     const issueState = core.getInput('notifiable-issue-state');
     const ratePauseSec = core.getInput('ratelimit-pause-sec');
+    const skipLabelName = core.getInput('skip-label-name');
+    const path = require('path');
 
     console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
     const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
     console.log(`Fetched ${issues.length} issues.`);
 
-
-    const checkableIssues = mapCheckableIssues(issues)
+    const checkableIssues = mapCheckableIssues(issues, skipLabelName)
 
     const dataCheckoutDir = './hc-data-checkout';
 
@@ -212,7 +214,8 @@ async function run() {
     console.log('Current Working Directory:', process.cwd());
     console.log('Contents of Current Directory:', fs.readdirSync(process.cwd()));
 
-    const allHealthchecks = loadHealthChecks(dataCheckoutDir);
+    const hcRelPath = path.join(dataCheckoutDir, hcSubDir);
+    const allHealthchecks = loadHealthChecks(hcRelPath);
 
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
@@ -220,9 +223,8 @@ async function run() {
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
 
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
-
     for (const enterpriseIssue of staleIssues) {
-      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec);
+      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);

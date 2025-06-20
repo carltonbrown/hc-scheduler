@@ -41,6 +41,10 @@ inputs:
     description: "How many seconds to pause between each notification to avoid secondary rate limiting"
     required: false
     default: 1
+  skip-label-name:
+    description:  "The label to apply to the issue to skip healthchecks"
+    required: false
+    default: "pause-healthcheck-notifications"
 secrets:
   HC_DATA_SECRET:
     description: "Personal access token for accessing the healthcheck data repository"

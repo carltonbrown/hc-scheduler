@@ -13,7 +13,7 @@ function parseHealthcheckFile(filePath) {
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Extract the YAML frontmatter (between the first two "---" lines)
-  const frontmatterMatch = fileContent.match(/^---\n([\s\S]*?)\n---/);
+  const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
 
   if (!frontmatterMatch) {
     // Return a default object if no frontmatter is found

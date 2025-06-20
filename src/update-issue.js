@@ -5,7 +5,7 @@ const github = require('@actions/github');
  * @param {Object} enterpriseIssue - The issue object from notifiableIssues.
  * @returns {string} - The notification comment message.
  */
-function composeNotificationComment(enterpriseIssue) {
+function composeNotificationComment(enterpriseIssue, skipLabel) {
   const { enterprise_slug, last_healthcheck_date, assignees } = enterpriseIssue;
 
   let baseMessage;
@@ -35,7 +35,7 @@ function composeNotificationComment(enterpriseIssue) {
     : '';
 
   return assignees.length > 0
-    ? `Heads-up ${assigneeMentions}! ${baseMessage}`
+    ? `Heads-up ${assigneeMentions}! ${baseMessage}  If you'd like to suppress this message for 30 days, add the label \`${skipLabel}\`  to the issue ${enterpriseIssue.url}`
     : baseMessage;
 }
 
@@ -48,11 +48,11 @@ function composeNotificationComment(enterpriseIssue) {
  * @param {boolean} isDryRun - If true, the function will only log the comment instead of posting it.
  * @returns {Promise<void>} - A promise that resolves when the comment is added or logged.
  */
-async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1) {
+async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
   try {
     const octokit = github.getOctokit(token);
 
-    let notificationComment = composeNotificationComment(enterpriseIssue);
+    let notificationComment = composeNotificationComment(enterpriseIssue, skipLabel);
 
     if (isDryRun) {
       console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`);

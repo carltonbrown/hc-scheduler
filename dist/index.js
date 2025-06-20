@@ -34090,8 +34090,8 @@ const parseHealthcheckFile = __nccwpck_require__(9641);
  * @param {string} [dirPath='./'] - The directory to search for healthcheck files (default is the current directory).
  * @returns {object[]} - A list of all healthcheck objects.
  */
-function loadHealthChecks(dirPath = './premium/health-checks') {
-  const markdownFiles = scanForMarkdownFiles(dirPath);
+function loadHealthChecks(hcSubDir = './premium/health-checks') {
+  const markdownFiles = scanForMarkdownFiles(hcSubDir);
   const allHealthchecks = [];
 
   for (const file of markdownFiles) {
@@ -34127,7 +34127,7 @@ function parseHealthcheckFile(filePath) {
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Extract the YAML frontmatter (between the first two "---" lines)
-  const frontmatterMatch = fileContent.match(/^---\n([\s\S]*?)\n---/);
+  const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
 
   if (!frontmatterMatch) {
     // Return a default object if no frontmatter is found
@@ -34159,6 +34159,7 @@ const path = __nccwpck_require__(6928);
  * @returns {string[]} - A list of `.md` files with their relative paths.
  */
 function scanForMarkdownFiles(dirPath) {
+  console.log(`Scanning dir path ${dirPath}`);
   let markdownFiles = [];
 
   // Read the contents of the directory
@@ -34166,7 +34167,7 @@ function scanForMarkdownFiles(dirPath) {
 
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name);
-
+    console.log(`Considering ${fullPath}`);
     if (entry.isDirectory()) {
       // Recursively scan subdirectories
       markdownFiles = markdownFiles.concat(scanForMarkdownFiles(fullPath));
@@ -34194,7 +34195,7 @@ const github = __nccwpck_require__(3228);
  * @param {Object} enterpriseIssue - The issue object from notifiableIssues.
  * @returns {string} - The notification comment message.
  */
-function composeNotificationComment(enterpriseIssue) {
+function composeNotificationComment(enterpriseIssue, skipLabel) {
   const { enterprise_slug, last_healthcheck_date, assignees } = enterpriseIssue;
 
   let baseMessage;
@@ -34224,7 +34225,7 @@ function composeNotificationComment(enterpriseIssue) {
     : '';
 
   return assignees.length > 0
-    ? `Heads-up ${assigneeMentions}! ${baseMessage}`
+    ? `Heads-up ${assigneeMentions}! ${baseMessage}  If you'd like to suppress this message for 30 days, add the label \`${skipLabel}\`  to the issue ${enterpriseIssue.url}`
     : baseMessage;
 }
 
@@ -34237,11 +34238,11 @@ function composeNotificationComment(enterpriseIssue) {
  * @param {boolean} isDryRun - If true, the function will only log the comment instead of posting it.
  * @returns {Promise<void>} - A promise that resolves when the comment is added or logged.
  */
-async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1) {
+async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
   try {
     const octokit = github.getOctokit(token);
 
-    let notificationComment = composeNotificationComment(enterpriseIssue);
+    let notificationComment = composeNotificationComment(enterpriseIssue, skipLabel);
 
     if (isDryRun) {
       console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`);
@@ -36209,7 +36210,7 @@ function cloneRepo(token, repo, targetDir) {
  * @param {string} skipLabel - The label to check for skipping healthchecks.
  * @returns {Array} - Array of mapped issue objects.
  */
-function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
+function mapCheckableIssues(issues, skipLabel) {
   const results = issues.map((issue) => {
     let skipHealthcheckNotification = false;
 
@@ -36232,6 +36233,7 @@ function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
       title: issue.title,
       assignees: issue.assignees,
       labels: issue.labels,
+      url:  issue.url,
       skip_healthcheck_notification: skipHealthcheckNotification,
     };
   });
@@ -36371,7 +36373,7 @@ async function run() {
     const ghToken = core.getInput('github-token', { required: true });
     const hcDataSecret = core.getInput('hc-data-secret', { required: true });
     const dryRun = core.getInput('dry-run') === 'true';
-    const dirPath = core.getInput('dir-path');
+    const hcSubDir = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
     const projectNumber = core.getInput('issues-project-number', { required: true });
     const projectOrg = core.getInput('issues-project-org', { required: true });
@@ -36379,13 +36381,14 @@ async function run() {
     const issueStatus = core.getInput('notifiable-issue-status');
     const issueState = core.getInput('notifiable-issue-state');
     const ratePauseSec = core.getInput('ratelimit-pause-sec');
+    const skipLabelName = core.getInput('skip-label-name');
+    const path = __nccwpck_require__(6928);
 
     console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
     const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
     console.log(`Fetched ${issues.length} issues.`);
 
-
-    const checkableIssues = mapCheckableIssues(issues)
+    const checkableIssues = mapCheckableIssues(issues, skipLabelName)
 
     const dataCheckoutDir = './hc-data-checkout';
 
@@ -36393,7 +36396,8 @@ async function run() {
     console.log('Current Working Directory:', process.cwd());
     console.log('Contents of Current Directory:', fs.readdirSync(process.cwd()));
 
-    const allHealthchecks = loadHealthChecks(dataCheckoutDir);
+    const hcRelPath = path.join(dataCheckoutDir, hcSubDir);
+    const allHealthchecks = loadHealthChecks(hcRelPath);
 
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
@@ -36401,9 +36405,8 @@ async function run() {
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
 
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
-
     for (const enterpriseIssue of staleIssues) {
-      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec);
+      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);

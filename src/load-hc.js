@@ -7,8 +7,8 @@ const parseHealthcheckFile = require('./parse-frontmatter');
  * @param {string} [dirPath='./'] - The directory to search for healthcheck files (default is the current directory).
  * @returns {object[]} - A list of all healthcheck objects.
  */
-function loadHealthChecks(dirPath = './premium/health-checks') {
-  const markdownFiles = scanForMarkdownFiles(dirPath);
+function loadHealthChecks(hcSubDir = './premium/health-checks') {
+  const markdownFiles = scanForMarkdownFiles(hcSubDir);
   const allHealthchecks = [];
 
   for (const file of markdownFiles) {
