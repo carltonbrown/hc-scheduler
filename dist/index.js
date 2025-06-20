@@ -36211,16 +36211,28 @@ function cloneRepo(token, repo, targetDir) {
  */
 function mapCheckableIssues(issues, skipLabel = 'pause-healthcheck-reminders') {
   const results = issues.map((issue) => {
-    const skipHealthcheck = issue.labels.some((label) =>
-      typeof label === 'string' ? label === skipLabel : label.name === skipLabel
-    );
+    let skipHealthcheckNotification = false;
+
+    // Check for skipLabel
+    const hasSkipLabel = issue.labels && issue.labels.includes(skipLabel);
+
+    // Check if lastCommentDate is more than 30 days ago
+    let lastCommentTooOld = false;
+    if (issue.lastCommentDate) {
+      const last = new Date(issue.lastCommentDate);
+      const now = new Date();
+      const daysAgo = (now - last) / (1000 * 60 * 60 * 24);
+      lastCommentTooOld = daysAgo > 30;
+    }
+
+    skipHealthcheckNotification = hasSkipLabel || lastCommentTooOld;
 
     return {
       number: issue.number,
       title: issue.title,
       assignees: issue.assignees,
       labels: issue.labels,
-      skip_healthcheck: skipHealthcheck,
+      skip_healthcheck_notification: skipHealthcheckNotification,
     };
   });
   return results;
@@ -36263,6 +36275,11 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
                   labels(first: 20) {
                     nodes { name }
                   }
+                  comments(last: 1) {
+                    nodes {
+                      createdAt
+                    }
+                  }
                 }
               }
               fieldValues(first: 20) {
@@ -36299,7 +36316,6 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
 
     const items = response.organization?.projectV2?.items?.nodes || [];
 
-    // TODO: Go back and determine if this can be gotten from the GraphQL query
     for (const item of items) {
       const issue = item.content;
       if (
@@ -36317,6 +36333,15 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
             field.name === issueStatus
         );
         if (statusField) {
+          // Extract last comment date if available
+          let lastCommentDate = null;
+          if (
+            issue.comments &&
+            Array.isArray(issue.comments.nodes) &&
+            issue.comments.nodes.length > 0
+          ) {
+            lastCommentDate = issue.comments.nodes[0].createdAt;
+          }
           issues.push({
             id: item.id,
             title: issue.title,
@@ -36326,10 +36351,12 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
             assignees: issue.assignees.nodes.map(a => a.login),
             labels: issue.labels.nodes.map(l => l.name),
             status: statusField.name,
+            lastCommentDate,
           });
         }
       }
     }
+    
 
     hasNextPage = response.organization?.projectV2?.items?.pageInfo?.hasNextPage;
     after = response.organization?.projectV2?.items?.pageInfo?.endCursor;
