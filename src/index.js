@@ -82,6 +82,11 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
                   labels(first: 20) {
                     nodes { name }
                   }
+                  comments(last: 1) {
+                    nodes {
+                      createdAt
+                    }
+                  }
                 }
               }
               fieldValues(first: 20) {
