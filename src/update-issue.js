@@ -73,4 +73,29 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
   }
 }
 
-module.exports = { updateIssue, composeNotificationComment };
+async function unpauseIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
+  try {
+    const octokit = github.getOctokit(token);
+
+    if (isDryRun) {
+      console.log(`[DRY-RUN] Would have removed label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
+    } else {
+      try {
+        await octokit.rest.issues.removeLabel({
+          owner: repoOwner,
+          repo: repoName,
+          issue_number: enterpriseIssue.number,
+          name: skipLabel,
+        });
+        console.log(`Removed label "${skipLabel}" from issue #${enterpriseIssue.number} in ${repoOwner}/${repoName}`);
+      } catch (error) {
+        console.log(`Could not remove label "${skipLabel}" from issue #${enterpriseIssue.number}: ${error.message}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
+    }
+  } catch (error) {
+    console.log(`Unexpected error in unpauseIssue for issue #${enterpriseIssue.number}: ${error.message}`);
+  }
+}
+
+module.exports = { updateIssue, composeNotificationComment, unpauseIssue };

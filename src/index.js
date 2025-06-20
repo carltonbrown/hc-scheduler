@@ -53,6 +53,7 @@ function mapCheckableIssues(issues, skipLabel) {
       labels: issue.labels,
       url:  issue.url,
       skip_healthcheck_notification: skipHealthcheckNotification,
+      should_unpause_notifications: lastCommentTooOld
     };
   });
   return results;
