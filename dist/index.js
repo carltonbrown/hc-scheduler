@@ -36253,10 +36253,7 @@ function mapCheckableIssues(issues, skipLabel) {
   const results = issues.map((issue) => {
     // Check for skipLabel
     const hasSkipLabel = issue.labels && issue.labels.includes(skipLabel);
-if (/uber/i.test(issue.title)) {
-    console.log(`Checking skipLabel for ${issue.title}: "${skipLabel}" in labels:`, issue.labels, '=>', issue.labels.includes(skipLabel));
-    console.log(`Set hasSkipLabel to ${hasSkipLabel}`)
-}
+
     // Check if lastCommentDate is more than 30 days ago
     let lastCommentTooOld = false;
     if (issue.lastCommentDate) {
