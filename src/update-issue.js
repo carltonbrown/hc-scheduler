@@ -68,26 +68,25 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
       await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
   } catch (error) {
-    console.error(`Failed to update issue #${enterpriseIssue.number}: ${error.message}`);
+    console.error(`Failed to comment issue #${enterpriseIssue.number}: ${error.message}`);
     throw error;
   }
 }
 
 async function unpauseIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
   try {
-    const octokit = github.getOctokit(token);
-
     if (isDryRun) {
       console.log(`[DRY-RUN] Would have removed label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
     } else {
       try {
+        const octokit = github.getOctokit(token);
+        console.log(`[DRY-RUN] Removing label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
         await octokit.rest.issues.removeLabel({
           owner: repoOwner,
           repo: repoName,
           issue_number: enterpriseIssue.number,
           name: skipLabel,
         });
-        console.log(`Removed label "${skipLabel}" from issue #${enterpriseIssue.number} in ${repoOwner}/${repoName}`);
       } catch (error) {
         console.log(`Could not remove label "${skipLabel}" from issue #${enterpriseIssue.number}: ${error.message}`);
       }

@@ -34273,26 +34273,25 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
       await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
   } catch (error) {
-    console.error(`Failed to update issue #${enterpriseIssue.number}: ${error.message}`);
+    console.error(`Failed to comment issue #${enterpriseIssue.number}: ${error.message}`);
     throw error;
   }
 }
 
 async function unpauseIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
   try {
-    const octokit = github.getOctokit(token);
-
     if (isDryRun) {
       console.log(`[DRY-RUN] Would have removed label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
     } else {
       try {
+        const octokit = github.getOctokit(token);
+        console.log(`[DRY-RUN] Removing label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
         await octokit.rest.issues.removeLabel({
           owner: repoOwner,
           repo: repoName,
           issue_number: enterpriseIssue.number,
           name: skipLabel,
         });
-        console.log(`Removed label "${skipLabel}" from issue #${enterpriseIssue.number} in ${repoOwner}/${repoName}`);
       } catch (error) {
         console.log(`Could not remove label "${skipLabel}" from issue #${enterpriseIssue.number}: ${error.message}`);
       }
@@ -36225,7 +36224,7 @@ const github = __nccwpck_require__(3228);
 const { execSync } = __nccwpck_require__(5317);
 const { loadHealthChecks } = __nccwpck_require__(1787);
 const { findStaleIssues } = __nccwpck_require__(8375);
-const { updateIssue } = __nccwpck_require__(8818);
+const { updateIssue, unpauseIssue } = __nccwpck_require__(8818);
 const fs = __nccwpck_require__(9896);
 
 /**
@@ -36252,11 +36251,12 @@ function cloneRepo(token, repo, targetDir) {
  */
 function mapCheckableIssues(issues, skipLabel) {
   const results = issues.map((issue) => {
-    let skipHealthcheckNotification = false;
-
     // Check for skipLabel
     const hasSkipLabel = issue.labels && issue.labels.includes(skipLabel);
-
+if (/uber/i.test(issue.title)) {
+    console.log(`Checking skipLabel for ${issue.title}: "${skipLabel}" in labels:`, issue.labels, '=>', issue.labels.includes(skipLabel));
+    console.log(`Set hasSkipLabel to ${hasSkipLabel}`)
+}
     // Check if lastCommentDate is more than 30 days ago
     let lastCommentTooOld = false;
     if (issue.lastCommentDate) {
@@ -36266,16 +36266,14 @@ function mapCheckableIssues(issues, skipLabel) {
       lastCommentTooOld = daysAgo > 30;
     }
 
-    skipHealthcheckNotification = hasSkipLabel || lastCommentTooOld;
-
     return {
       number: issue.number,
       title: issue.title,
       assignees: issue.assignees,
       labels: issue.labels,
       url:  issue.url,
-      skip_healthcheck_notification: skipHealthcheckNotification,
-      should_unpause_notifications: lastCommentTooOld
+      skip_healthcheck_notification: hasSkipLabel,
+      no_recent_activity: lastCommentTooOld
     };
   });
   return results;
@@ -36446,8 +36444,19 @@ async function run() {
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
 
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
+
     for (const enterpriseIssue of staleIssues) {
-      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+      // Remove the notification pause if it's paused too long and there are no recent comments.
+      if (enterpriseIssue.skip_healthcheck_notification && enterpriseIssue.no_recent_activity) {
+        await unpauseIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+      }
+    }
+
+    for (const enterpriseIssue of staleIssues) {
+      // Make the appropriate notification reminder
+      if (!enterpriseIssue.skip_healthcheck_notification) {
+        await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+      }
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);
