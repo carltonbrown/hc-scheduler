@@ -170,6 +170,7 @@ async function run() {
     const projectRepo = core.getInput('issues-project-repo', { required: true });
     const issueStatus = core.getInput('notifiable-issue-status');
     const issueState = core.getInput('notifiable-issue-state');
+    const ratePauseSec = core.getInput('ratelimit-pause-sec');
 
     console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
     const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
@@ -194,7 +195,7 @@ async function run() {
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of staleIssues) {
-      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun);
+      await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec);
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message}`);

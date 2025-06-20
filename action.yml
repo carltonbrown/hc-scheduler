@@ -37,6 +37,10 @@ inputs:
     description: "If true, the action will simulate changes without making updates"
     required: false
     default: false
+  ratelimit-pause-sec:
+    description: "How many seconds to pause between each notification to avoid secondary rate limiting"
+    required: false
+    default: 1
 secrets:
   HC_DATA_SECRET:
     description: "Personal access token for accessing the healthcheck data repository"
