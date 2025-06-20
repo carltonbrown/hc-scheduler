@@ -12,7 +12,8 @@ function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
   const results = issues
     .filter(issue => !issue.skip_healthcheck)
     .map(issue => {
-      const [enterpriseSlug] = issue.title.split(/\s*-\s*/);
+      const enterpriseSlug = issue.title.replace(/\s*-\s*\d+.*$/, '');
+
       // Match healthchecks to this issue by enterprise_slug
       const matchingHealthchecks = healthchecks.filter(
         hc => hc.enterprise_slug === enterpriseSlug

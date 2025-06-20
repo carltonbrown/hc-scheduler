@@ -14,8 +14,11 @@ function loadHealthChecks(hcSubDir = './premium/health-checks') {
   for (const file of markdownFiles) {
     const healthcheck = parseHealthcheckFile(file);
 
-    if (healthcheck) {
+  if (healthcheck) {
+      console.log(`Parsed healthcheck from ${file}`);
       allHealthchecks.push(healthcheck);
+    } else {
+      console.log(`Found no healthcheck in ${file}`);
     }
   }
 

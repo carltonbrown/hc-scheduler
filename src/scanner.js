@@ -7,7 +7,6 @@ const path = require('path');
  * @returns {string[]} - A list of `.md` files with their relative paths.
  */
 function scanForMarkdownFiles(dirPath) {
-  console.log(`Scanning dir path ${dirPath}`);
   let markdownFiles = [];
 
   // Read the contents of the directory
@@ -15,7 +14,6 @@ function scanForMarkdownFiles(dirPath) {
 
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name);
-    console.log(`Considering ${fullPath}`);
     if (entry.isDirectory()) {
       // Recursively scan subdirectories
       markdownFiles = markdownFiles.concat(scanForMarkdownFiles(fullPath));

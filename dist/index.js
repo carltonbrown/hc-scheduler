@@ -34039,7 +34039,12 @@ function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
   const results = issues
     .filter(issue => !issue.skip_healthcheck)
     .map(issue => {
-      const [enterpriseSlug] = issue.title.split(/\s*-\s*/);
+      const enterpriseSlug = issue.title.replace(/\s*-\s*\d+.*$/, '');
+
+        if (/palantir/i.test(issue.title)) {
+    console.log(`DEBUG: palantir match - enterpriseSlug: "${enterpriseSlug}", issue.title: "${issue.title}"`);
+  }
+
       // Match healthchecks to this issue by enterprise_slug
       const matchingHealthchecks = healthchecks.filter(
         hc => hc.enterprise_slug === enterpriseSlug
@@ -34097,8 +34102,11 @@ function loadHealthChecks(hcSubDir = './premium/health-checks') {
   for (const file of markdownFiles) {
     const healthcheck = parseHealthcheckFile(file);
 
-    if (healthcheck) {
+  if (healthcheck) {
+      console.log(`Parsed healthcheck from ${file}`);
       allHealthchecks.push(healthcheck);
+    } else {
+      console.log(`Found no healthcheck in ${file}`);
     }
   }
 
@@ -34106,6 +34114,7 @@ function loadHealthChecks(hcSubDir = './premium/health-checks') {
 }
 
 module.exports = { loadHealthChecks };
+
 
 /***/ }),
 
@@ -34123,8 +34132,13 @@ const yaml = __nccwpck_require__(4281);
  * @returns {object} - The healthcheck object with fields from the frontmatter or a default object.
  */
 function parseHealthcheckFile(filePath) {
-  // Read the file content
-  const fileContent = fs.readFileSync(filePath, 'utf8');
+  const rawContent = fs.readFileSync(filePath, 'utf8');
+
+  const fileContent = rawContent
+  .split(/\r?\n/)
+  .map(line => line.replace(/\s+$/, ''))
+  .join('\n');
+
 
   // Extract the YAML frontmatter (between the first two "---" lines)
   const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -34134,9 +34148,16 @@ function parseHealthcheckFile(filePath) {
     return { enterprise_id: null };
   }
 
+  const frontmatterText = frontmatterMatch[1];
+
   try {
-    // Parse the YAML frontmatter
-    return yaml.load(frontmatterMatch[1]);
+    let frontmatter = yaml.load(frontmatterText);
+
+    // ensure slug is downcased
+    if (frontmatter && typeof frontmatter.enterprise_slug === 'string') {
+      frontmatter.enterprise_slug = frontmatter.enterprise_slug.toLowerCase();
+    }
+    return frontmatter;
   } catch (error) {
     // Handle YAML parsing errors gracefully
     throw new Error(`Failed to parse YAML frontmatter: ${error.message}`);
@@ -34159,7 +34180,6 @@ const path = __nccwpck_require__(6928);
  * @returns {string[]} - A list of `.md` files with their relative paths.
  */
 function scanForMarkdownFiles(dirPath) {
-  console.log(`Scanning dir path ${dirPath}`);
   let markdownFiles = [];
 
   // Read the contents of the directory
@@ -34167,7 +34187,6 @@ function scanForMarkdownFiles(dirPath) {
 
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name);
-    console.log(`Considering ${fullPath}`);
     if (entry.isDirectory()) {
       // Recursively scan subdirectories
       markdownFiles = markdownFiles.concat(scanForMarkdownFiles(fullPath));
@@ -34198,10 +34217,14 @@ const github = __nccwpck_require__(3228);
 function composeNotificationComment(enterpriseIssue, skipLabel) {
   const { enterprise_slug, last_healthcheck_date, assignees } = enterpriseIssue;
 
+  if (/deere/i.test(enterpriseIssue.title)) {
+  console.log(`DEBUG: enterpriseIssue for deere: ${JSON.stringify(enterpriseIssue, null, 2)}`);
+}
+
   let baseMessage;
 
   if (last_healthcheck_date === null) {
-    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because it's never had one.`;
+    baseMessage = `No healthchecks were found for the issue titled \'${enterpriseIssue.title}\'.  This may reflect a mismatch between the issue title and the healthcheck's frontmatter.`;
   } else {
     const healthcheckDate = new Date(last_healthcheck_date);
     if (isNaN(healthcheckDate)) {

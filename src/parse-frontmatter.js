@@ -9,8 +9,13 @@ const yaml = require('js-yaml');
  * @returns {object} - The healthcheck object with fields from the frontmatter or a default object.
  */
 function parseHealthcheckFile(filePath) {
-  // Read the file content
-  const fileContent = fs.readFileSync(filePath, 'utf8');
+  const rawContent = fs.readFileSync(filePath, 'utf8');
+
+  const fileContent = rawContent
+  .split(/\r?\n/)
+  .map(line => line.replace(/\s+$/, ''))
+  .join('\n');
+
 
   // Extract the YAML frontmatter (between the first two "---" lines)
   const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -20,9 +25,16 @@ function parseHealthcheckFile(filePath) {
     return { enterprise_id: null };
   }
 
+  const frontmatterText = frontmatterMatch[1];
+
   try {
-    // Parse the YAML frontmatter
-    return yaml.load(frontmatterMatch[1]);
+    let frontmatter = yaml.load(frontmatterText);
+
+    // ensure slug is downcased
+    if (frontmatter && typeof frontmatter.enterprise_slug === 'string') {
+      frontmatter.enterprise_slug = frontmatter.enterprise_slug.toLowerCase();
+    }
+    return frontmatter;
   } catch (error) {
     // Handle YAML parsing errors gracefully
     throw new Error(`Failed to parse YAML frontmatter: ${error.message}`);

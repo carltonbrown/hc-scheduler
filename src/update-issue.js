@@ -11,7 +11,7 @@ function composeNotificationComment(enterpriseIssue, skipLabel) {
   let baseMessage;
 
   if (last_healthcheck_date === null) {
-    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because it's never had one.`;
+    baseMessage = `No healthchecks were found for the issue titled \'${enterpriseIssue.title}\'.  This may reflect a mismatch between the issue title and the healthcheck's frontmatter.`;
   } else {
     const healthcheckDate = new Date(last_healthcheck_date);
     if (isNaN(healthcheckDate)) {
