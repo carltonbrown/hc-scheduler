@@ -60,18 +60,17 @@ async function run() {
           }
         }
       }
-    }
 
-    for (const enterpriseIssue of staleIssues) {
       // Make the appropriate notification reminder
       if (!enterpriseIssue.skip_healthcheck_notification) {
-        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, skipLabelName);
         if (!result.ok) {
           console.error(result.message);
         } else {
           console.log(result.message)
         }
       }
+      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message} || ${error.stack}`);

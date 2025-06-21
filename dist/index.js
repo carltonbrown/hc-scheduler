@@ -34466,7 +34466,6 @@ async function addIssueComment(octokit, repoOwner, repoName, enterpriseIssue, is
       });
 
       returnMessage = `Commented on issue ${issueDescription}`;
-      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
     result = true;
   } catch (error) {
@@ -34488,7 +34487,7 @@ async function addIssueComment(octokit, repoOwner, repoName, enterpriseIssue, is
  * @param {string} labelName - The name of the label to remove.
  * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message.
  */
-async function unlabelIssue(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, ratePauseSec = 1, labelName) {
+async function unlabelIssue(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, labelName) {
   const baseMessage = `\`${labelName}\` from issue #${enterpriseIssue.number} in \`${repoOwner}/${repoName}\` (${enterpriseIssue.title})`;
   let returnMessage = '';
   let result = false;
@@ -34504,11 +34503,10 @@ async function unlabelIssue(octokit, repoOwner, repoName, enterpriseIssue, isDry
         issue_number: enterpriseIssue.number,
         name: labelName,
       });
-      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
     result = true;
   } catch (error) {
-    returnMessage = `Unexpected error removing label ${baseMessage}: ${error.message}`;
+    returnMessage = `Error removing label ${baseMessage}: ${error.message}`;
   }
   return { ok: result, message: returnMessage };
 }
@@ -36492,18 +36490,17 @@ async function run() {
           }
         }
       }
-    }
 
-    for (const enterpriseIssue of staleIssues) {
       // Make the appropriate notification reminder
       if (!enterpriseIssue.skip_healthcheck_notification) {
-        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, skipLabelName);
         if (!result.ok) {
           console.error(result.message);
         } else {
           console.log(result.message)
         }
       }
+      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message} || ${error.stack}`);
