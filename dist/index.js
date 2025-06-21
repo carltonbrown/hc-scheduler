@@ -34022,6 +34022,197 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 1009:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const { execSync } = __nccwpck_require__(5317);
+
+/**
+ * Clones a GitHub repository into a specified directory.
+ * @param {string} token - The authentication token for the repository.
+ * @param {string} repo - The repository in the format "owner/repo".
+ * @param {string} targetDir - The directory to clone the repository into.
+ */
+function cloneRepo(token, repo, targetDir) {
+  if (!token) {
+    throw new Error('Cannot clone; no token is not set');
+  }
+
+  const repoUrl = `https://${token}@github.com/${repo}.git`;
+  console.log(`Cloning repository ${repo} into ${targetDir}...`);
+  execSync(`git clone ${repoUrl} ${targetDir}`, { stdio: 'inherit' });
+}
+
+/**
+ * Maps issues to a more convenient data structure, adding skip_healthcheck_notification based on the skipLabel.
+ * @param {Array} issues - Array of issue objects.
+ * @param {string} skipLabel - The label to check for skipping healthchecks.
+ * @returns {Array} - Array of mapped issue objects.
+ */
+function mapCheckableIssues(issues, skipLabel) {
+  return issues.map((issue) => {
+    const hasSkipLabel = issue.labels && issue.labels.includes(skipLabel);
+    return {
+      number: issue.number,
+      title: issue.title,
+      assignees: issue.assignees,
+      labels: issue.labels,
+      url: issue.url,
+      skip_healthcheck_notification: hasSkipLabel
+    };
+  });
+}
+
+async function fetchIssuesFromV2Project(octokit, org, projectNumber, issueStatus = "Active", issueState = "OPEN") {
+  if (!org) throw new Error("Organization (org) is required");
+  const query = `
+    query ($org: String!, $projectNumber: Int!, $after: String) {
+      organization(login: $org) {
+        projectV2(number: $projectNumber) {
+          items(first: 100, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              content {
+                ... on Issue {
+                  title
+                  number
+                  url
+                  state
+                  assignees(first: 10) {
+                    nodes { login }
+                  }
+                  labels(first: 20) {
+                    nodes { name }
+                  }
+                }
+              }
+              fieldValues(first: 20) {
+                nodes {
+                  ... on ProjectV2ItemFieldSingleSelectValue {
+                    field {
+                      ... on ProjectV2FieldCommon {
+                        name
+                      }
+                    }
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  let after = null;
+  let issues = [];
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const variables = {
+      org,
+      projectNumber: Number(projectNumber),
+      after,
+    };
+
+    const response = await octokit.graphql(query, variables);
+
+    const items = response.organization?.projectV2?.items?.nodes || [];
+
+    for (const item of items) {
+      const issue = item.content;
+      if (
+        issue &&
+        issue.state === issueState &&
+        Array.isArray(issue.assignees?.nodes) &&
+        issue.assignees.nodes.length > 0
+      ) {
+        // Find the Status field value
+        const statusField = item.fieldValues.nodes.find(
+          (field) =>
+            field &&
+            field.field &&
+            field.field.name === "Status" &&
+            field.name === issueStatus
+        );
+        if (statusField) {
+          issues.push({
+            id: item.id,
+            title: issue.title,
+            number: issue.number,
+            url: issue.url,
+            state: issue.state,
+            assignees: issue.assignees.nodes.map(a => a.login),
+            labels: issue.labels.nodes.map(l => l.name),
+            status: statusField.name,
+          });
+        }
+      }
+    }
+
+    hasNextPage = response.organization?.projectV2?.items?.pageInfo?.hasNextPage;
+    after = response.organization?.projectV2?.items?.pageInfo?.endCursor;
+  }
+
+  return issues;
+}
+
+/**
+ * Fetches the timeline events for an issue and returns the created_at date
+ * for when the specified label was added.
+ * 
+ * @param {object} octokit - An authenticated Octokit REST client.
+ * @param {string} owner - The repository owner.
+ * @param {string} repo - The repository name.
+ * @param {number} issueNumber - The issue number.
+ * @param {string} labelName - The label to search for.
+ * @returns {Promise<Date|null>} - The Date when the label was added, or null if not found.
+ */
+async function getIssueLabeledDate(octokit, owner, repo, issueNumber, labelName) {
+  const per_page = 100;
+  let page = 1;
+  let result;
+  while (true) {
+    const { data: events } = await octokit.rest.issues.listEventsForTimeline({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      per_page,
+      page,
+      mediaType: { previews: ['mockingbird'] }, // Required for timeline API
+    });
+
+    for (const event of events) {
+      if (
+        event.event === 'labeled' &&
+        event.label &&
+        event.label.name === labelName
+      ) {
+        result = new Date(event.created_at);
+      }
+    }
+
+    if (events.length < per_page) break;
+    page += 1;
+  }
+  return result;
+}
+
+module.exports = {
+  cloneRepo,
+  mapCheckableIssues,
+  fetchIssuesFromV2Project,
+  getIssueLabeledDate
+};
+
+
+/***/ }),
+
 /***/ 8375:
 /***/ ((module) => {
 
@@ -34130,11 +34321,11 @@ const yaml = __nccwpck_require__(4281);
 function parseHealthcheckFile(filePath) {
   const rawContent = fs.readFileSync(filePath, 'utf8');
 
+  // Remove trailing whitespace from all lines
   const fileContent = rawContent
   .split(/\r?\n/)
   .map(line => line.replace(/\s+$/, ''))
   .join('\n');
-
 
   // Extract the YAML frontmatter (between the first two "---" lines)
   const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -34201,24 +34392,24 @@ module.exports = { scanForMarkdownFiles };
 /***/ }),
 
 /***/ 8818:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const github = __nccwpck_require__(3228);
+/***/ ((module) => {
 
 /**
  * Composes the notification comment for a health check issue.
  * @param {Object} enterpriseIssue - The issue object from notifiableIssues.
  * @returns {string} - The notification comment message.
  */
-function composeNotificationComment(enterpriseIssue, skipLabel) {
-  const { enterprise_slug, last_healthcheck_date, assignees } = enterpriseIssue;
-
+function composeNotificationComment(enterpriseIssue, skipLabelName) {
+  const { enterprise_slug, last_healthcheck_date, assignees = [] } = enterpriseIssue;
   let baseMessage;
 
   if (last_healthcheck_date === null) {
-    baseMessage = `No healthchecks were found for the issue titled \'${enterpriseIssue.title}\'.  This may reflect a mismatch between the issue title and the healthcheck's frontmatter.`;
-  } else {
+    baseMessage =
+      `No healthchecks were found for the issue titled '${enterpriseIssue.title}'. `
+      "This may reflect a mismatch between the issue title and the healthcheck's frontmatter.";  } else {
+
     const healthcheckDate = new Date(last_healthcheck_date);
+
     if (isNaN(healthcheckDate)) {
       throw new Error(`Invalid date: ${last_healthcheck_date}`);
     }
@@ -34235,32 +34426,37 @@ function composeNotificationComment(enterpriseIssue, skipLabel) {
     baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
   }
 
+  const suppressionAdvice = `If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${enterpriseIssue.url}`;
+  const finalMessage = `${baseMessage} ${suppressionAdvice}`;
+
   const assigneeMentions = assignees.length > 0
     ? assignees.map((assignee) => `@${assignee}`).join(' ')
     : '';
 
   return assignees.length > 0
-    ? `Heads-up ${assigneeMentions}! ${baseMessage}  If you'd like to suppress this message for 30 days, add the label \`${skipLabel}\`  to the issue ${enterpriseIssue.url}`
-    : baseMessage;
+    ? `Heads-up ${assigneeMentions}! ${finalMessage}.`
+    : finalMessage;
 }
 
 /**
- * Adds a comment to a GitHub issue.
- * @param {string} token - The GitHub token for authentication.
+ * Adds a comment to a GitHub issue, or logs the intended comment if dry run is enabled.
+ * @param {object} octokit - An authenticated Octokit REST client.
  * @param {string} repoOwner - The owner of the repository.
  * @param {string} repoName - The name of the repository.
  * @param {Object} enterpriseIssue - The issue object from notifiableIssues.
- * @param {boolean} isDryRun - If true, the function will only log the comment instead of posting it.
- * @returns {Promise<void>} - A promise that resolves when the comment is added or logged.
- */
-async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
-  try {
-    const octokit = github.getOctokit(token);
+ * @param {boolean} [isDryRun=false] - If true, the function will only log the comment instead of posting it.
+ * @param {number} [ratePauseSec=1] - Number of seconds to pause after commenting.
+ * @param {string} skipLabel - The label that suppresses notifications.
+ * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message. */
+async function addIssueComment(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, ratePauseSec = 1, skipLabelName) {
+  let result = false;
+  let returnMessage = '';
+  const notificationComment = composeNotificationComment(enterpriseIssue, skipLabelName);
+  const issueDescription = `#${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`
 
-    let notificationComment = composeNotificationComment(enterpriseIssue, skipLabel);
-
+  try {  
     if (isDryRun) {
-      console.log(`[DRY-RUN] Would have commented on issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`);
+      returnMessage = `[DRY-RUN] Would have commented on issue ${issueDescription}`;
     } else {
       await octokit.rest.issues.createComment({
         owner: repoOwner,
@@ -34269,40 +34465,55 @@ async function updateIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun
         body: notificationComment,
       });
 
-      console.log(`Commented on issue #${enterpriseIssue.number}: ${notificationComment}`);
+      returnMessage = `Commented on issue ${issueDescription}`;
       await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
+    result = true;
   } catch (error) {
-    console.error(`Failed to comment issue #${enterpriseIssue.number}: ${error.message}`);
-    throw error;
+    returnMessage = `Failed to comment issue ${issueDescription} - ${error.message}`;
   }
+  return { ok: result, message: returnMessage };
 }
 
-async function unpauseIssue(token, repoOwner, repoName, enterpriseIssue, isDryRun = false, ratePauseSec = 1, skipLabel) {
+/**
+ * Removes a label from a GitHub issue, or logs the intended action if dry run is enabled.
+ * Handles errors gracefully and returns a status object.
+ *
+ * @param {object} octokit - An authenticated Octokit REST client.
+ * @param {string} repoOwner - The owner of the repository.
+ * @param {string} repoName - The name of the repository.
+ * @param {Object} enterpriseIssue - The issue object containing issue details.
+ * @param {boolean} [isDryRun=false] - If true, logs the intended action instead of performing it.
+ * @param {number} [ratePauseSec=1] - Number of seconds to pause after removing the label.
+ * @param {string} labelName - The name of the label to remove.
+ * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message.
+ */
+async function unlabelIssue(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, ratePauseSec = 1, labelName) {
+  const baseMessage = `\`${labelName}\` from issue #${enterpriseIssue.number} in \`${repoOwner}/${repoName}\` (${enterpriseIssue.title})`;
+  let returnMessage = '';
+  let result = false;
+
   try {
     if (isDryRun) {
-      console.log(`[DRY-RUN] Would have removed label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
+      returnMessage = `[DRY-RUN] Would have removed label ${baseMessage}`;
     } else {
-      try {
-        const octokit = github.getOctokit(token);
-        console.log(`[DRY-RUN] Removing label "${skipLabel}" from issue #${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}`);
-        await octokit.rest.issues.removeLabel({
-          owner: repoOwner,
-          repo: repoName,
-          issue_number: enterpriseIssue.number,
-          name: skipLabel,
-        });
-      } catch (error) {
-        console.log(`Could not remove label "${skipLabel}" from issue #${enterpriseIssue.number}: ${error.message}`);
-      }
+      returnMessage = `Removing label ${baseMessage}`;
+      await octokit.rest.issues.removeLabel({
+        owner: repoOwner,
+        repo: repoName,
+        issue_number: enterpriseIssue.number,
+        name: labelName,
+      });
       await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
     }
+    result = true;
   } catch (error) {
-    console.log(`Unexpected error in unpauseIssue for issue #${enterpriseIssue.number}: ${error.message}`);
+    returnMessage = `Unexpected error removing label ${baseMessage}: ${error.message}`;
   }
+  return { ok: result, message: returnMessage };
 }
 
-module.exports = { updateIssue, composeNotificationComment, unpauseIssue };
+module.exports = { addIssueComment, composeNotificationComment, unlabelIssue };
 
 
 /***/ }),
@@ -36221,194 +36432,20 @@ module.exports = parseParams
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
-const { execSync } = __nccwpck_require__(5317);
 const { loadHealthChecks } = __nccwpck_require__(1787);
 const { findStaleIssues } = __nccwpck_require__(8375);
-const { updateIssue, unpauseIssue } = __nccwpck_require__(8818);
+const { addIssueComment, unlabelIssue } = __nccwpck_require__(8818);
+const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = __nccwpck_require__(1009);
 const fs = __nccwpck_require__(9896);
-
-/**
- * Clones a GitHub repository into a specified directory.
- * @param {string} token - The authentication token for the repository.
- * @param {string} repo - The repository in the format "owner/repo".
- * @param {string} targetDir - The directory to clone the repository into.
- */
-function cloneRepo(token, repo, targetDir) {
-  if (!token) {
-    throw new Error('Cannot clone; no token is not set');
-  }
-
-  const repoUrl = `https://${token}@github.com/${repo}.git`;
-  console.log(`Cloning repository ${repo} into ${targetDir}...`);
-  execSync(`git clone ${repoUrl} ${targetDir}`, { stdio: 'inherit' });
-}
-
-/**
- * Maps issues to a more convenient data structure, adding skip_healthcheck based on the skipLabel.
- * @param {Array} issues - Array of issue objects.
- * @param {string} skipLabel - The label to check for skipping healthchecks.
- * @returns {Array} - Array of mapped issue objects.
- */
-function mapCheckableIssues(issues, skipLabel) {
-  const results = issues.map((issue) => {
-    // Check for skipLabel
-    const hasSkipLabel = issue.labels && issue.labels.includes(skipLabel);
-
-    // Check if lastCommentDate is more than 30 days ago
-    let lastCommentTooOld = false;
-    if (issue.lastCommentDate) {
-      const last = new Date(issue.lastCommentDate);
-      const now = new Date();
-      const daysAgo = (now - last) / (1000 * 60 * 60 * 24);
-      lastCommentTooOld = daysAgo > 30;
-    }
-
-    return {
-      number: issue.number,
-      title: issue.title,
-      assignees: issue.assignees,
-      labels: issue.labels,
-      url:  issue.url,
-      skip_healthcheck_notification: hasSkipLabel,
-      no_recent_activity: lastCommentTooOld
-    };
-  });
-  return results;
-}
-
-/**
- * Fetches issues from a GitHub Projects (v2/Next Gen) board using GraphQL.
- * Only returns issues with the specified project Status, issue state, and at least one assignee.
- * 
- * @param {string} token - The GitHub token for authentication.
- * @param {string} org - The organization login (required).
- * @param {number} projectNumber - The project number (not ID).
- * @param {string} issueStatus - The project Status field value to match (default: "Active").
- * @param {string} issueState - The GitHub issue state to match (default: "OPEN").
- * @returns {Promise<Array>} - A promise that resolves to an array of matching issues.
- */
-async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus = "Active", issueState = "OPEN") {
-  if (!org) throw new Error("Organization (org) is required");
-  const octokit = github.getOctokit(token);
-  const query = `
-    query ($org: String!, $projectNumber: Int!, $after: String) {
-      organization(login: $org) {
-        projectV2(number: $projectNumber) {
-          items(first: 100, after: $after) {
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            nodes {
-              id
-              content {
-                ... on Issue {
-                  title
-                  number
-                  url
-                  state
-                  assignees(first: 10) {
-                    nodes { login }
-                  }
-                  labels(first: 20) {
-                    nodes { name }
-                  }
-                  comments(last: 1) {
-                    nodes {
-                      createdAt
-                    }
-                  }
-                }
-              }
-              fieldValues(first: 20) {
-                nodes {
-                  ... on ProjectV2ItemFieldSingleSelectValue {
-                    field {
-                      ... on ProjectV2FieldCommon {
-                        name
-                      }
-                    }
-                    name
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  let after = null;
-  let issues = [];
-  let hasNextPage = true;
-
-  while (hasNextPage) {
-    const variables = {
-      org,
-      projectNumber: Number(projectNumber),
-      after,
-    };
-
-    const response = await octokit.graphql(query, variables);
-
-    const items = response.organization?.projectV2?.items?.nodes || [];
-
-    for (const item of items) {
-      const issue = item.content;
-      if (
-        issue &&
-        issue.state === issueState &&
-        Array.isArray(issue.assignees?.nodes) &&
-        issue.assignees.nodes.length > 0
-      ) {
-        // Find the Status field value
-        const statusField = item.fieldValues.nodes.find(
-          (field) =>
-            field &&
-            field.field &&
-            field.field.name === "Status" &&
-            field.name === issueStatus
-        );
-        if (statusField) {
-          // Extract last comment date if available
-          let lastCommentDate = null;
-          if (
-            issue.comments &&
-            Array.isArray(issue.comments.nodes) &&
-            issue.comments.nodes.length > 0
-          ) {
-            lastCommentDate = issue.comments.nodes[0].createdAt;
-          }
-          issues.push({
-            id: item.id,
-            title: issue.title,
-            number: issue.number,
-            url: issue.url,
-            state: issue.state,
-            assignees: issue.assignees.nodes.map(a => a.login),
-            labels: issue.labels.nodes.map(l => l.name),
-            status: statusField.name,
-            lastCommentDate,
-          });
-        }
-      }
-    }
-    
-
-    hasNextPage = response.organization?.projectV2?.items?.pageInfo?.hasNextPage;
-    after = response.organization?.projectV2?.items?.pageInfo?.endCursor;
-  }
-
-  return issues;
-}
+const path = __nccwpck_require__(6928);
 
 async function run() {
   try {
-    const maxStalenessInDays = core.getInput('max-staleness-days') || 60;
-    const ghToken = core.getInput('github-token', { required: true });
+    const maxStalenessInDays = Number(core.getInput('max-staleness-days') || 60);
+    const ratePauseSec = Number(core.getInput('ratelimit-pause-sec'));
     const hcDataSecret = core.getInput('hc-data-secret', { required: true });
-    const dryRun = core.getInput('dry-run') === 'true';
+    const dryRunInput = core.getInput('dry-run') || '';
+    const dryRun = ['true', '1'].includes(dryRunInput.trim().toLowerCase());
     const hcSubDir = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
     const projectNumber = core.getInput('issues-project-number', { required: true });
@@ -36416,47 +36453,60 @@ async function run() {
     const projectRepo = core.getInput('issues-project-repo', { required: true });
     const issueStatus = core.getInput('notifiable-issue-status');
     const issueState = core.getInput('notifiable-issue-state');
-    const ratePauseSec = core.getInput('ratelimit-pause-sec');
     const skipLabelName = core.getInput('skip-label-name');
-    const path = __nccwpck_require__(6928);
+    const octokit = github.getOctokit(hcDataSecret);
 
     console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
-    const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
+    const issues = await fetchIssuesFromV2Project(octokit, projectOrg, projectNumber, issueStatus, issueState);
     console.log(`Fetched ${issues.length} issues.`);
-
     const checkableIssues = mapCheckableIssues(issues, skipLabelName)
 
     const dataCheckoutDir = './hc-data-checkout';
-
     cloneRepo(hcDataSecret, hcDataRepo, dataCheckoutDir);
     console.log('Current Working Directory:', process.cwd());
     console.log('Contents of Current Directory:', fs.readdirSync(process.cwd()));
-
     const hcRelPath = path.join(dataCheckoutDir, hcSubDir);
     const allHealthchecks = loadHealthChecks(hcRelPath);
-
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
-
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of staleIssues) {
       // Remove the notification pause if it's paused too long and there are no recent comments.
-      if (enterpriseIssue.skip_healthcheck_notification && enterpriseIssue.no_recent_activity) {
-        await unpauseIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+      if (enterpriseIssue.skip_healthcheck_notification) {
+        const skipLabeledDate = await getIssueLabeledDate(octokit, projectOrg, projectRepo, enterpriseIssue.number, skipLabelName);
+        const now = new Date();
+        const daysSkipped = (now - skipLabeledDate) / (1000 * 60 * 60 * 24);
+        let result;
+        console.log(`skipLabeledDate is ${skipLabeledDate} for \'${enterpriseIssue.title}\'`)
+        if (daysSkipped > 30) {
+          result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        }
+        if (result) {
+          if (!result.ok) {
+            console.error(result.message);
+          } else {
+            console.log(result.message);
+          }
+        }
       }
     }
 
     for (const enterpriseIssue of staleIssues) {
       // Make the appropriate notification reminder
       if (!enterpriseIssue.skip_healthcheck_notification) {
-        await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        if (!result.ok) {
+          console.error(result.message);
+        } else {
+          console.log(result.message)
+        }
       }
     }
   } catch (error) {
-    core.setFailed(`Action failed with error: ${error.message}`);
+    core.setFailed(`Action failed with error: ${error.message} || ${error.stack}`);
   }
 }
 

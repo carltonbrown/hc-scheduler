@@ -11,11 +11,11 @@ const yaml = require('js-yaml');
 function parseHealthcheckFile(filePath) {
   const rawContent = fs.readFileSync(filePath, 'utf8');
 
+  // Remove trailing whitespace from all lines
   const fileContent = rawContent
   .split(/\r?\n/)
   .map(line => line.replace(/\s+$/, ''))
   .join('\n');
-
 
   // Extract the YAML frontmatter (between the first two "---" lines)
   const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
