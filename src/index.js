@@ -3,8 +3,9 @@ const github = require('@actions/github');
 const { execSync } = require('child_process');
 const { loadHealthChecks } = require('./load-hc');
 const { findStaleIssues } = require('./find-stale-issues');
-const { updateIssue, unpauseIssue } = require('./update-issue');
+const { addIssueComment, unlabelIssue } = require('./update-issue');
 const fs = require('fs');
+const path = require('path');
 
 /**
  * Clones a GitHub repository into a specified directory.
@@ -173,7 +174,6 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
         }
       }
     }
-    
 
     hasNextPage = response.organization?.projectV2?.items?.pageInfo?.hasNextPage;
     after = response.organization?.projectV2?.items?.pageInfo?.endCursor;
@@ -184,10 +184,11 @@ async function fetchIssuesFromV2Project(token, org, projectNumber, issueStatus =
 
 async function run() {
   try {
-    const maxStalenessInDays = core.getInput('max-staleness-days') || 60;
-    const ghToken = core.getInput('github-token', { required: true });
+    const maxStalenessInDays = Number(core.getInput('max-staleness-days') || 60);
+    const ratePauseSec = Number(core.getInput('ratelimit-pause-sec'));
     const hcDataSecret = core.getInput('hc-data-secret', { required: true });
-    const dryRun = core.getInput('dry-run') === 'true';
+    const dryRunInput = core.getInput('dry-run') || '';
+    const dryRun = ['true', '1'].includes(dryRunInput.trim().toLowerCase());
     const hcSubDir = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
     const projectNumber = core.getInput('issues-project-number', { required: true });
@@ -195,43 +196,48 @@ async function run() {
     const projectRepo = core.getInput('issues-project-repo', { required: true });
     const issueStatus = core.getInput('notifiable-issue-status');
     const issueState = core.getInput('notifiable-issue-state');
-    const ratePauseSec = core.getInput('ratelimit-pause-sec');
     const skipLabelName = core.getInput('skip-label-name');
-    const path = require('path');
+    const ghToken = core.getInput('github-token', { required: true });
+    const octokit = github.getOctokit(ghToken);
 
     console.log(`Fetching candidate issues for org=${projectOrg}, projectNumber=${projectNumber}, issueStatus=${issueStatus}, issueState=${issueState}`);
     const issues = await fetchIssuesFromV2Project(hcDataSecret, projectOrg, projectNumber, issueStatus, issueState);
     console.log(`Fetched ${issues.length} issues.`);
-
     const checkableIssues = mapCheckableIssues(issues, skipLabelName)
 
     const dataCheckoutDir = './hc-data-checkout';
-
     cloneRepo(hcDataSecret, hcDataRepo, dataCheckoutDir);
     console.log('Current Working Directory:', process.cwd());
     console.log('Contents of Current Directory:', fs.readdirSync(process.cwd()));
-
     const hcRelPath = path.join(dataCheckoutDir, hcSubDir);
     const allHealthchecks = loadHealthChecks(hcRelPath);
-
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
     const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
-
     console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of staleIssues) {
       // Remove the notification pause if it's paused too long and there are no recent comments.
       if (enterpriseIssue.skip_healthcheck_notification && enterpriseIssue.no_recent_activity) {
-        await unpauseIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        const result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        if (!result.ok) {
+          console.error(result.message);
+        } else {
+          console.log(result.message)
+        }
       }
     }
 
     for (const enterpriseIssue of staleIssues) {
       // Make the appropriate notification reminder
       if (!enterpriseIssue.skip_healthcheck_notification) {
-        await updateIssue(ghToken, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+        if (!result.ok) {
+          console.error(result.message);
+        } else {
+          console.log(result.message)
+        }
       }
     }
   } catch (error) {

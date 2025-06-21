@@ -36,7 +36,7 @@ inputs:
   dry-run:
     description: "If true, the action will simulate changes without making updates"
     required: false
-    default: false
+    default: true
   ratelimit-pause-sec:
     description: "How many seconds to pause between each notification to avoid secondary rate limiting"
     required: false
