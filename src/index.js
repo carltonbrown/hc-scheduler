@@ -1,7 +1,7 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const { loadHealthChecks } = require('./load-hc');
-const { findStaleIssues } = require('./find-stale-issues');
+const { findOverdueIssues } = require('./find-stale-issues');
 const { addIssueComment, unlabelIssue } = require('./update-issue');
 const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = require('./fetch-helpers');
 const fs = require('fs');
@@ -13,7 +13,7 @@ async function run() {
     const ratePauseSec = Number(core.getInput('ratelimit-pause-sec'));
     const hcDataSecret = core.getInput('hc-data-secret', { required: true });
     const dryRunInput = core.getInput('dry-run') || '';
-    const dryRun = ['true', '1'].includes(dryRunInput.trim().toLowerCase());
+    const isDryRun = ['true', '1'].includes(dryRunInput.trim().toLowerCase()) // ensure sloppy inputs get cast correctly;
     const hcSubDir = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
     const projectNumber = core.getInput('issues-project-number', { required: true });
@@ -38,10 +38,10 @@ async function run() {
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
-    const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
-    console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
+    const overdueIssues = overdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+    console.log(`Found ${overdueIssues.length} customers needing healthchecks.`);
 
-    for (const enterpriseIssue of staleIssues) {
+    for (const enterpriseIssue of overdueIssues) {
       // Remove the notification pause if it's paused too long and there are no recent comments.
       if (enterpriseIssue.skip_healthcheck_notification) {
         const skipLabeledDate = await getIssueLabeledDate(octokit, projectOrg, projectRepo, enterpriseIssue.number, skipLabelName);
@@ -50,7 +50,7 @@ async function run() {
         let result;
         console.log(`skipLabeledDate is ${skipLabeledDate} for \'${enterpriseIssue.title}\'`)
         if (daysSkipped > 30) {
-          result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+          result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, isDryRun, ratePauseSec, skipLabelName);
         }
         if (result) {
           if (!result.ok) {
@@ -63,14 +63,18 @@ async function run() {
 
       // Make the appropriate notification reminder
       if (!enterpriseIssue.skip_healthcheck_notification) {
-        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, skipLabelName);
+        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, isDryRun, skipLabelName);
         if (!result.ok) {
           console.error(result.message);
         } else {
           console.log(result.message)
         }
       }
-      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
+
+      // If this a dry run (not a production run), pause ${ratePauseSec} to avoid saturating secondary rate budgets 
+      if (isDryRun) {
+        await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
+      }
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message} || ${error.stack}`);

@@ -6,7 +6,7 @@
  * @param {number} maxStalenessInDays - The maximum number of days for a healthcheck to be considered non-stale.
  * @returns {Array} - The filtered list of issues with last_healthcheck_date and days_since_healthcheck.
  */
-function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
+function findOverdueIssues(healthchecks, issues, maxStalenessInDays) {
   const now = new Date();
 
   const results = issues
@@ -47,4 +47,4 @@ function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
   return results;
 }
 
-module.exports = { findStaleIssues };
+module.exports = { findOverdueIssues };

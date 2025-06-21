@@ -34224,7 +34224,7 @@ module.exports = {
  * @param {number} maxStalenessInDays - The maximum number of days for a healthcheck to be considered non-stale.
  * @returns {Array} - The filtered list of issues with last_healthcheck_date and days_since_healthcheck.
  */
-function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
+function findOverdueIssues(healthchecks, issues, maxStalenessInDays) {
   const now = new Date();
 
   const results = issues
@@ -34265,7 +34265,7 @@ function findStaleIssues(healthchecks, issues, maxStalenessInDays) {
   return results;
 }
 
-module.exports = { findStaleIssues };
+module.exports = { findOverdueIssues };
 
 
 /***/ }),
@@ -36431,7 +36431,7 @@ var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const { loadHealthChecks } = __nccwpck_require__(1787);
-const { findStaleIssues } = __nccwpck_require__(8375);
+const { findOverdueIssues } = __nccwpck_require__(8375);
 const { addIssueComment, unlabelIssue } = __nccwpck_require__(8818);
 const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = __nccwpck_require__(1009);
 const fs = __nccwpck_require__(9896);
@@ -36443,7 +36443,7 @@ async function run() {
     const ratePauseSec = Number(core.getInput('ratelimit-pause-sec'));
     const hcDataSecret = core.getInput('hc-data-secret', { required: true });
     const dryRunInput = core.getInput('dry-run') || '';
-    const dryRun = ['true', '1'].includes(dryRunInput.trim().toLowerCase());
+    const isDryRun = ['true', '1'].includes(dryRunInput.trim().toLowerCase()) // ensure sloppy inputs get cast correctly;
     const hcSubDir = core.getInput('dir-path');
     const hcDataRepo = core.getInput('hc-data-repo', { required: true });
     const projectNumber = core.getInput('issues-project-number', { required: true });
@@ -36468,10 +36468,10 @@ async function run() {
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
-    const staleIssues = findStaleIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
-    console.log(`Found ${staleIssues.length} customers needing healthchecks.`);
+    const overdueIssues = overdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+    console.log(`Found ${overdueIssues.length} customers needing healthchecks.`);
 
-    for (const enterpriseIssue of staleIssues) {
+    for (const enterpriseIssue of overdueIssues) {
       // Remove the notification pause if it's paused too long and there are no recent comments.
       if (enterpriseIssue.skip_healthcheck_notification) {
         const skipLabeledDate = await getIssueLabeledDate(octokit, projectOrg, projectRepo, enterpriseIssue.number, skipLabelName);
@@ -36480,7 +36480,7 @@ async function run() {
         let result;
         console.log(`skipLabeledDate is ${skipLabeledDate} for \'${enterpriseIssue.title}\'`)
         if (daysSkipped > 30) {
-          result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, ratePauseSec, skipLabelName);
+          result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, isDryRun, ratePauseSec, skipLabelName);
         }
         if (result) {
           if (!result.ok) {
@@ -36493,14 +36493,18 @@ async function run() {
 
       // Make the appropriate notification reminder
       if (!enterpriseIssue.skip_healthcheck_notification) {
-        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, dryRun, skipLabelName);
+        const result = await addIssueComment(octokit, projectOrg, projectRepo, enterpriseIssue, isDryRun, skipLabelName);
         if (!result.ok) {
           console.error(result.message);
         } else {
           console.log(result.message)
         }
       }
-      await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
+
+      // If this a dry run (not a production run), pause ${ratePauseSec} to avoid saturating secondary rate budgets 
+      if (isDryRun) {
+        await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
+      }
     }
   } catch (error) {
     core.setFailed(`Action failed with error: ${error.message} || ${error.stack}`);
@@ -36508,7 +36512,6 @@ async function run() {
 }
 
 run();
-
 module.exports = __webpack_exports__;
 /******/ })()
 ;
