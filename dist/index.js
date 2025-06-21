@@ -34258,13 +34258,12 @@ function composeNotificationComment(enterpriseIssue, skipLabelName) {
  * @param {string} skipLabel - The label that suppresses notifications.
  * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message. */
 async function addIssueComment(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, ratePauseSec = 1, skipLabelName) {
-  try {
-    const notificationComment = composeNotificationComment(enterpriseIssue, skipLabelName);
-    const issueDescription = `#${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`
-    
-    let returnMessage;
-    let result = false;
-    
+  let result = false;
+  let returnMessage = '';
+  const notificationComment = composeNotificationComment(enterpriseIssue, skipLabelName);
+  const issueDescription = `#${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`
+
+  try {  
     if (isDryRun) {
       returnMessage = `[DRY-RUN] Would have commented on issue ${issueDescription}`;
     } else {
