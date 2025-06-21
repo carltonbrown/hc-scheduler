@@ -116,7 +116,7 @@ async function fetchIssuesFromV2Project(octokit, org, projectNumber, issueStatus
         if (statusField) {
           issues.push({
             id: item.id,
-            title: issue.title,
+            title: issue.title.trim(),
             number: issue.number,
             url: issue.url,
             state: issue.state,

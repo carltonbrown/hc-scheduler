@@ -1,3 +1,9 @@
-test('this test will fail', () => {
-  expect(1 + 1).toBe(2); // This will fail because 1 + 1 is not equal to 3
+test('Project to-do list should be marked as done', () => {
+  // List of tasks to complete for this project
+  const toDoList = [
+    "One by one, Consolidate HC discovery tasks into the new hc-helpers module and consolidate its test"
+  ];
+
+  // Pass the test if the toDoList is empty
+  expect(toDoList).toEqual([]);
 });

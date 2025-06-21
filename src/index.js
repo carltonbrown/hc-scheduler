@@ -1,7 +1,7 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const { loadHealthChecks } = require('./load-hc');
-const { findOverdueIssues } = require('./find-stale-issues');
+const { findOverdueIssues } = require('./healthcheck-helpers');
 const { addIssueComment, unlabelIssue } = require('./update-issue');
 const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = require('./fetch-helpers');
 const fs = require('fs');
@@ -38,7 +38,7 @@ async function run() {
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
-    const overdueIssues = overdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+    const overdueIssues = findOverdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
     console.log(`Found ${overdueIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of overdueIssues) {

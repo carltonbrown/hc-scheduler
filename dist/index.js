@@ -34143,7 +34143,7 @@ async function fetchIssuesFromV2Project(octokit, org, projectNumber, issueStatus
         if (statusField) {
           issues.push({
             id: item.id,
-            title: issue.title,
+            title: issue.title.trim(),
             number: issue.number,
             url: issue.url,
             state: issue.state,
@@ -34213,7 +34213,7 @@ module.exports = {
 
 /***/ }),
 
-/***/ 8375:
+/***/ 567:
 /***/ ((module) => {
 
 /**
@@ -34266,7 +34266,6 @@ function findOverdueIssues(healthchecks, issues, maxStalenessInDays) {
 }
 
 module.exports = { findOverdueIssues };
-
 
 /***/ }),
 
@@ -34400,20 +34399,19 @@ module.exports = { scanForMarkdownFiles };
  * @returns {string} - The notification comment message.
  */
 function composeNotificationComment(enterpriseIssue, skipLabelName) {
+  if (!enterpriseIssue || !enterpriseIssue.title) {
+    return `Could not determine healthcheck status because the issue is missing some fields: ${JSON.stringify(enterpriseIssue)}`;
+  }
   const { enterprise_slug, last_healthcheck_date, assignees = [] } = enterpriseIssue;
+
   let baseMessage;
 
-  if (last_healthcheck_date === null) {
+  const healthcheckDate = new Date(last_healthcheck_date);
+  if (last_healthcheck_date == null || isNaN(healthcheckDate)) {
     baseMessage =
       `No healthchecks were found for the issue titled '${enterpriseIssue.title}'. `
-      "This may reflect a mismatch between the issue title and the healthcheck's frontmatter.";  } else {
-
-    const healthcheckDate = new Date(last_healthcheck_date);
-
-    if (isNaN(healthcheckDate)) {
-      throw new Error(`Invalid date: ${last_healthcheck_date}`);
-    }
-
+      + "This may reflect a mismatch between the issue title and the healthcheck's YAML frontmatter.";
+  } else {
     const now = new Date();
     const ageInDays = Math.floor((now - healthcheckDate) / (1000 * 60 * 60 * 24));
 
@@ -34429,13 +34427,14 @@ function composeNotificationComment(enterpriseIssue, skipLabelName) {
   const suppressionAdvice = `If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${enterpriseIssue.url}`;
   const finalMessage = `${baseMessage} ${suppressionAdvice}`;
 
-  const assigneeMentions = assignees.length > 0
-    ? assignees.map((assignee) => `@${assignee}`).join(' ')
-    : '';
-
-  return assignees.length > 0
-    ? `Heads-up ${assigneeMentions}! ${finalMessage}.`
-    : finalMessage;
+  if (assignees.length > 0) {
+    /** build assigneeMentions as a comma separated list of @handles
+      and compose a suitable return message that includes it */
+    const assigneeMentions = assignees.map((assignee) => `@${assignee}`).join(' ');
+    return `Heads-up ${assigneeMentions}! ${finalMessage}.`;
+  } else {
+    return finalMessage;
+  }
 }
 
 /**
@@ -36431,7 +36430,7 @@ var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const { loadHealthChecks } = __nccwpck_require__(1787);
-const { findOverdueIssues } = __nccwpck_require__(8375);
+const { findOverdueIssues } = __nccwpck_require__(567);
 const { addIssueComment, unlabelIssue } = __nccwpck_require__(8818);
 const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = __nccwpck_require__(1009);
 const fs = __nccwpck_require__(9896);
@@ -36468,7 +36467,7 @@ async function run() {
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
-    const overdueIssues = overdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+    const overdueIssues = findOverdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
     console.log(`Found ${overdueIssues.length} customers needing healthchecks.`);
 
     for (const enterpriseIssue of overdueIssues) {
@@ -36512,6 +36511,7 @@ async function run() {
 }
 
 run();
+
 module.exports = __webpack_exports__;
 /******/ })()
 ;
