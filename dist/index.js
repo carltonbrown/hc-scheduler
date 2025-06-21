@@ -34232,7 +34232,6 @@ function findOverdueIssues(healthchecks, issues, maxStalenessInDays) {
   const now = new Date();
 
   const results = issues
-    .filter(issue => !issue.skip_healthcheck)
     .map(issue => {
       const enterpriseSlug = issue.title.replace(/\s*-\s*\d+.*$/, '');
 
