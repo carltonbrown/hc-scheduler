@@ -72,7 +72,7 @@ async function run() {
       }
 
       // If this a dry run (not a production run), pause ${ratePauseSec} to avoid saturating secondary rate budgets 
-      if (isDryRun) {
+      if (!isDryRun) {
         await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
       }
     }
