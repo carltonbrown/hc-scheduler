@@ -1,7 +1,6 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const { loadHealthChecks } = require('./load-hc');
-const { findOverdueIssues } = require('./healthcheck-helpers');
+const { loadHealthCheckFiles, findOverdueIssues } = require('./healthcheck-helpers');
 const { addIssueComment, unlabelIssue } = require('./update-issue');
 const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = require('./fetch-helpers');
 const fs = require('fs');
@@ -34,7 +33,7 @@ async function run() {
     console.log('Current Working Directory:', process.cwd());
     console.log('Contents of Current Directory:', fs.readdirSync(process.cwd()));
     const hcRelPath = path.join(dataCheckoutDir, hcSubDir);
-    const allHealthchecks = loadHealthChecks(hcRelPath);
+    const allHealthchecks = loadHealthCheckFiles(hcRelPath);
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
@@ -46,11 +45,12 @@ async function run() {
       if (enterpriseIssue.skip_healthcheck_notification) {
         const skipLabeledDate = await getIssueLabeledDate(octokit, projectOrg, projectRepo, enterpriseIssue.number, skipLabelName);
         const now = new Date();
-        const daysSkipped = (now - skipLabeledDate) / (1000 * 60 * 60 * 24);
+        const daysSkipped = Math.floor((now - skipLabeledDate) / (1000 * 60 * 60 * 24));
         let result;
-        console.log(`skipLabeledDate is ${skipLabeledDate} for \'${enterpriseIssue.title}\'`)
         if (daysSkipped > 30) {
           result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, isDryRun, ratePauseSec, skipLabelName);
+        } else {
+          console.log(`[INFO] - not removing label ${skipLabelName} on overdue issue \'${enterpriseIssue.title}\' which has been skipped for ${daysSkipped} days (since ${skipLabeledDate})`)
         }
         if (result) {
           if (!result.ok) {
@@ -69,9 +69,10 @@ async function run() {
         } else {
           console.log(result.message)
         }
+      } else {
       }
 
-      // If this a dry run (not a production run), pause ${ratePauseSec} to avoid saturating secondary rate budgets 
+      // If is a production run (not a dry run), pause ${ratePauseSec} to avoid saturating secondary rate budgets
       if (!isDryRun) {
         await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
       }

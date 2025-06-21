@@ -34214,7 +34214,11 @@ module.exports = {
 /***/ }),
 
 /***/ 567:
-/***/ ((module) => {
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const fs = __nccwpck_require__(9896);
+const path = __nccwpck_require__(6928);
+const yaml = __nccwpck_require__(4281);
 
 /**
  * Finds issues that have no recent healthchecks (older than maxStalenessInDays).
@@ -34265,50 +34269,30 @@ function findOverdueIssues(healthchecks, issues, maxStalenessInDays) {
   return results;
 }
 
-module.exports = { findOverdueIssues };
-
-/***/ }),
-
-/***/ 1787:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const path = __nccwpck_require__(6928);
-const { scanForMarkdownFiles } = __nccwpck_require__(9863);
-const parseHealthcheckFile = __nccwpck_require__(9641);
-
 /**
- * Loads all healthcheck files and parses their content.
- * @param {string} [dirPath='./'] - The directory to search for healthcheck files (default is the current directory).
- * @returns {object[]} - A list of all healthcheck objects.
+ * Scans a directory recursively for files with the `.md` extension.
+ * @param {string} dirPath - The directory to scan.
+ * @returns {string[]} - A list of `.md` files with their relative paths.
  */
-function loadHealthChecks(hcSubDir = './premium/health-checks') {
-  const markdownFiles = scanForMarkdownFiles(hcSubDir);
-  const allHealthchecks = [];
+function discoverMarkdownFiles(dirPath) {
+  let markdownFiles = [];
 
-  for (const file of markdownFiles) {
-    const healthcheck = parseHealthcheckFile(file);
+  // Read the contents of the directory
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
-  if (healthcheck) {
-      console.log(`Parsed healthcheck from ${file}`);
-      allHealthchecks.push(healthcheck);
-    } else {
-      console.log(`Found no healthcheck in ${file}`);
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      // Recursively scan subdirectories
+      markdownFiles = markdownFiles.concat(discoverMarkdownFiles(fullPath));
+    } else if (entry.isFile() && path.extname(entry.name) === '.md') {
+      // Add `.md` files to the list
+      markdownFiles.push(fullPath);
     }
   }
 
-  return allHealthchecks;
+  return markdownFiles;
 }
-
-module.exports = { loadHealthChecks };
-
-
-/***/ }),
-
-/***/ 9641:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const fs = __nccwpck_require__(9896);
-const yaml = __nccwpck_require__(4281);
 
 /**
  * Reads a file with YAML frontmatter and returns a "healthcheck" object
@@ -34317,7 +34301,7 @@ const yaml = __nccwpck_require__(4281);
  * @param {string} filePath - The path to the file to read.
  * @returns {object} - The healthcheck object with fields from the frontmatter or a default object.
  */
-function parseHealthcheckFile(filePath) {
+function parseHealthCheckFile(filePath) {
   const rawContent = fs.readFileSync(filePath, 'utf8');
 
   // Remove trailing whitespace from all lines
@@ -34350,43 +34334,35 @@ function parseHealthcheckFile(filePath) {
   }
 }
 
-module.exports = parseHealthcheckFile;
-
-/***/ }),
-
-/***/ 9863:
-/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
-
-const fs = __nccwpck_require__(9896);
-const path = __nccwpck_require__(6928);
-
 /**
- * Scans a directory recursively for files with the `.md` extension.
- * @param {string} dirPath - The directory to scan.
- * @returns {string[]} - A list of `.md` files with their relative paths.
+ * Loads all healthcheck files and parses their content.
+ * @param {string} [dirPath='./'] - The directory to search for healthcheck files (default is the current directory).
+ * @returns {object[]} - A list of all healthcheck objects.
  */
-function scanForMarkdownFiles(dirPath) {
-  let markdownFiles = [];
+function loadHealthCheckFiles(hcSubDir = './premium/health-checks') {
+  const markdownFiles = discoverMarkdownFiles(hcSubDir);
+  const allHealthchecks = [];
 
-  // Read the contents of the directory
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  for (const file of markdownFiles) {
+    const healthcheck = parseHealthCheckFile(file);
 
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      // Recursively scan subdirectories
-      markdownFiles = markdownFiles.concat(scanForMarkdownFiles(fullPath));
-    } else if (entry.isFile() && path.extname(entry.name) === '.md') {
-      // Add `.md` files to the list
-      markdownFiles.push(fullPath);
+  if (healthcheck) {
+      console.log(`Parsed healthcheck from ${file}`);
+      allHealthchecks.push(healthcheck);
+    } else {
+      console.log(`Found no healthcheck in ${file}`);
     }
   }
 
-  return markdownFiles;
+  return allHealthchecks;
 }
 
-module.exports = { scanForMarkdownFiles };
-
+module.exports = { 
+    findOverdueIssues,
+    loadHealthCheckFiles, 
+    parseHealthCheckFile,
+    discoverMarkdownFiles
+};
 
 /***/ }),
 
@@ -36429,8 +36405,7 @@ module.exports = parseParams
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
-const { loadHealthChecks } = __nccwpck_require__(1787);
-const { findOverdueIssues } = __nccwpck_require__(567);
+const { loadHealthCheckFiles, findOverdueIssues } = __nccwpck_require__(567);
 const { addIssueComment, unlabelIssue } = __nccwpck_require__(8818);
 const { cloneRepo, mapCheckableIssues, fetchIssuesFromV2Project, getIssueLabeledDate } = __nccwpck_require__(1009);
 const fs = __nccwpck_require__(9896);
@@ -36463,7 +36438,7 @@ async function run() {
     console.log('Current Working Directory:', process.cwd());
     console.log('Contents of Current Directory:', fs.readdirSync(process.cwd()));
     const hcRelPath = path.join(dataCheckoutDir, hcSubDir);
-    const allHealthchecks = loadHealthChecks(hcRelPath);
+    const allHealthchecks = loadHealthCheckFiles(hcRelPath);
     console.log(`Found ${allHealthchecks.length} historical healthchecks.`);
 
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
@@ -36475,11 +36450,12 @@ async function run() {
       if (enterpriseIssue.skip_healthcheck_notification) {
         const skipLabeledDate = await getIssueLabeledDate(octokit, projectOrg, projectRepo, enterpriseIssue.number, skipLabelName);
         const now = new Date();
-        const daysSkipped = (now - skipLabeledDate) / (1000 * 60 * 60 * 24);
+        const daysSkipped = Math.floor((now - skipLabeledDate) / (1000 * 60 * 60 * 24));
         let result;
-        console.log(`skipLabeledDate is ${skipLabeledDate} for \'${enterpriseIssue.title}\'`)
         if (daysSkipped > 30) {
           result = await unlabelIssue(octokit, projectOrg, projectRepo, enterpriseIssue, isDryRun, ratePauseSec, skipLabelName);
+        } else {
+          console.log(`[INFO] - not removing label ${skipLabelName} on overdue issue \'${enterpriseIssue.title}\' which has been skipped for ${daysSkipped} days (since ${skipLabeledDate})`)
         }
         if (result) {
           if (!result.ok) {
@@ -36498,10 +36474,11 @@ async function run() {
         } else {
           console.log(result.message)
         }
+      } else {
       }
 
-      // If this a dry run (not a production run), pause ${ratePauseSec} to avoid saturating secondary rate budgets 
-      if (isDryRun) {
+      // If is a production run (not a dry run), pause ${ratePauseSec} to avoid saturating secondary rate budgets
+      if (!isDryRun) {
         await new Promise(resolve => setTimeout(resolve, ratePauseSec * 1000));
       }
     }

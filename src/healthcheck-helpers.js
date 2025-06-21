@@ -1,3 +1,7 @@
+const fs = require('fs');
+const path = require('path');
+const yaml = require('js-yaml');
+
 /**
  * Finds issues that have no recent healthchecks (older than maxStalenessInDays).
  * Extracts the enterprise slug from the issue title (format: "slug - number").
@@ -47,4 +51,97 @@ function findOverdueIssues(healthchecks, issues, maxStalenessInDays) {
   return results;
 }
 
-module.exports = { findOverdueIssues };
+/**
+ * Scans a directory recursively for files with the `.md` extension.
+ * @param {string} dirPath - The directory to scan.
+ * @returns {string[]} - A list of `.md` files with their relative paths.
+ */
+function discoverMarkdownFiles(dirPath) {
+  let markdownFiles = [];
+
+  // Read the contents of the directory
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      // Recursively scan subdirectories
+      markdownFiles = markdownFiles.concat(discoverMarkdownFiles(fullPath));
+    } else if (entry.isFile() && path.extname(entry.name) === '.md') {
+      // Add `.md` files to the list
+      markdownFiles.push(fullPath);
+    }
+  }
+
+  return markdownFiles;
+}
+
+/**
+ * Reads a file with YAML frontmatter and returns a "healthcheck" object
+ * with the fields described in the frontmatter.
+ * If no frontmatter is found, returns a default object.
+ * @param {string} filePath - The path to the file to read.
+ * @returns {object} - The healthcheck object with fields from the frontmatter or a default object.
+ */
+function parseHealthCheckFile(filePath) {
+  const rawContent = fs.readFileSync(filePath, 'utf8');
+
+  // Remove trailing whitespace from all lines
+  const fileContent = rawContent
+  .split(/\r?\n/)
+  .map(line => line.replace(/\s+$/, ''))
+  .join('\n');
+
+  // Extract the YAML frontmatter (between the first two "---" lines)
+  const frontmatterMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+
+  if (!frontmatterMatch) {
+    // Return a default object if no frontmatter is found
+    return { enterprise_id: null };
+  }
+
+  const frontmatterText = frontmatterMatch[1];
+
+  try {
+    let frontmatter = yaml.load(frontmatterText);
+
+    // ensure slug is downcased
+    if (frontmatter && typeof frontmatter.enterprise_slug === 'string') {
+      frontmatter.enterprise_slug = frontmatter.enterprise_slug.toLowerCase();
+    }
+    return frontmatter;
+  } catch (error) {
+    // Handle YAML parsing errors gracefully
+    throw new Error(`Failed to parse YAML frontmatter: ${error.message}`);
+  }
+}
+
+/**
+ * Loads all healthcheck files and parses their content.
+ * @param {string} [dirPath='./'] - The directory to search for healthcheck files (default is the current directory).
+ * @returns {object[]} - A list of all healthcheck objects.
+ */
+function loadHealthCheckFiles(hcSubDir = './premium/health-checks') {
+  const markdownFiles = discoverMarkdownFiles(hcSubDir);
+  const allHealthchecks = [];
+
+  for (const file of markdownFiles) {
+    const healthcheck = parseHealthCheckFile(file);
+
+  if (healthcheck) {
+      console.log(`Parsed healthcheck from ${file}`);
+      allHealthchecks.push(healthcheck);
+    } else {
+      console.log(`Found no healthcheck in ${file}`);
+    }
+  }
+
+  return allHealthchecks;
+}
+
+module.exports = { 
+    findOverdueIssues,
+    loadHealthCheckFiles, 
+    parseHealthCheckFile,
+    discoverMarkdownFiles
+};
