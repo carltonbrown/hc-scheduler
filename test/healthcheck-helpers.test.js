@@ -46,7 +46,7 @@ describe('findOverdueIssues', () => {
       { title: 'Beta - 456', skip_healthcheck: false }
     ];
     const healthchecks = [
-      { enterprise_slug: 'Beta', date: daysAgo(40) }
+      { enterprise_slug: 'beta', date: daysAgo(40) }
     ];
     const result = findOverdueIssues(healthchecks, issues, 30);
     expect(result).toHaveLength(1);
@@ -59,7 +59,7 @@ describe('findOverdueIssues', () => {
       { title: 'Gamma - 789', skip_healthcheck: false }
     ];
     const healthchecks = [
-      { enterprise_slug: 'Gamma', date: daysAgo(10) }
+      { enterprise_slug: 'gamma', date: daysAgo(10) }
     ];
     const result = findOverdueIssues(healthchecks, issues, 30);
     expect(result).toHaveLength(0);
@@ -70,10 +70,10 @@ describe('findOverdueIssues', () => {
       { title: 'Epsilon - 202', skip_healthcheck: false }
     ];
     const healthchecks = [
-      { enterprise_slug: 'Epsilon', date: daysAgo(50) }
+      { enterprise_slug: 'epsilon', date: daysAgo(50) }
     ];
     const result = findOverdueIssues(healthchecks, issues, 30);
-    expect(result[0].enterprise_slug).toBe('Epsilon');
+    expect(result[0].enterprise_slug).toBe('epsilon');
   });
 
   it('handles multiple issues and healthchecks', () => {
@@ -82,12 +82,12 @@ describe('findOverdueIssues', () => {
       { title: 'Eta - 2', skip_healthcheck: false }
     ];
     const healthchecks = [
-      { enterprise_slug: 'Zeta', date: daysAgo(31) },
-      { enterprise_slug: 'Eta', date: daysAgo(10) }
+      { enterprise_slug: 'zeta', date: daysAgo(31) },
+      { enterprise_slug: 'eta', date: daysAgo(10) }
     ];
     const result = findOverdueIssues(healthchecks, issues, 30);
     expect(result).toHaveLength(1);
-    expect(result[0].enterprise_slug).toBe('Zeta');
+    expect(result[0].enterprise_slug).toBe('zeta');
   });
 });
 
