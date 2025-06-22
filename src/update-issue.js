@@ -1,71 +1,25 @@
 /**
- * Composes the notification comment for a health check issue.
- * @param {Object} enterpriseIssue - The issue object from notifiableIssues.
- * @returns {string} - The notification comment message.
- */
-function composeNotificationComment(enterpriseIssue, skipLabelName) {
-  if (!enterpriseIssue || !enterpriseIssue.title) {
-    return `Could not determine healthcheck status because the issue is missing some fields: ${JSON.stringify(enterpriseIssue)}`;
-  }
-  const { enterprise_slug, last_healthcheck_date, assignees = [] } = enterpriseIssue;
-
-  let baseMessage;
-
-  const healthcheckDate = new Date(last_healthcheck_date);
-  if (last_healthcheck_date == null || isNaN(healthcheckDate)) {
-    baseMessage =
-      `No healthchecks were found for the issue titled '${enterpriseIssue.title}'. `
-      + "This may reflect a mismatch between the issue title and the healthcheck's YAML frontmatter.";
-  } else {
-    const now = new Date();
-    const ageInDays = Math.floor((now - healthcheckDate) / (1000 * 60 * 60 * 24));
-
-    const formattedDate = new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(healthcheckDate);
-
-    baseMessage = `The enterprise ${enterpriseIssue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
-  }
-
-  const suppressionAdvice = `If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${enterpriseIssue.url}`;
-  const finalMessage = `${baseMessage} ${suppressionAdvice}`;
-
-  if (assignees.length > 0) {
-    /** build assigneeMentions as a comma separated list of @handles
-      and compose a suitable return message that includes it */
-    const assigneeMentions = assignees.map((assignee) => `@${assignee}`).join(' ');
-    return `Heads-up ${assigneeMentions}! ${finalMessage}.`;
-  } else {
-    return finalMessage;
-  }
-}
-
-/**
  * Adds a comment to a GitHub issue, or logs the intended comment if dry run is enabled.
- * @param {object} octokit - An authenticated Octokit REST client.
- * @param {string} repoOwner - The owner of the repository.
- * @param {string} repoName - The name of the repository.
- * @param {Object} enterpriseIssue - The issue object from notifiableIssues.
- * @param {boolean} [isDryRun=false] - If true, the function will only log the comment instead of posting it.
- * @param {number} [ratePauseSec=1] - Number of seconds to pause after commenting.
- * @param {string} skipLabel - The label that suppresses notifications.
- * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message. */
-async function addIssueComment(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, ratePauseSec = 1, skipLabelName) {
+ * @param {object} repoApiContext - An object containing octokit, repoOwner, and repoName.
+ * @param {Object} issue - The issue object from notifiableIssues.
+ * @param {string} skipLabelName - The label that suppresses notifications.
+ * @param {boolean} [isDryRun=true] - If true, the function will only log the comment instead of posting it.
+ * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message.
+ */
+async function addIssueComment(repoApiContext, issue, skipLabelName, isDryRun = true) {
   let result = false;
   let returnMessage = '';
-  const notificationComment = composeNotificationComment(enterpriseIssue, skipLabelName);
-  const issueDescription = `#${enterpriseIssue.number} ${enterpriseIssue.title} in ${repoOwner}/${repoName}: ${notificationComment}`
+  const notificationComment = composeNotificationComment(issue, skipLabelName);
+  const issueDescription = `#${issue.number} ${issue.title} in ${repoApiContext.repoOwner}/${repoApiContext.repoName}: ${notificationComment}`;
 
-  try {  
+  try {
     if (isDryRun) {
       returnMessage = `[DRY-RUN] Would have commented on issue ${issueDescription}`;
     } else {
-      await octokit.rest.issues.createComment({
-        owner: repoOwner,
-        repo: repoName,
-        issue_number: enterpriseIssue.number,
+      await repoApiContext.octokit.rest.issues.createComment({
+        owner: repoApiContext.repoOwner,
+        repo: repoApiContext.repoName,
+        issue_number: issue.number,
         body: notificationComment,
       });
 
@@ -79,20 +33,61 @@ async function addIssueComment(octokit, repoOwner, repoName, enterpriseIssue, is
 }
 
 /**
+ * Composes the notification comment for a health check issue.
+ * @param {Object} issue - The issue object from notifiableIssues.
+ * @param {string} skipLabelName - The label that suppresses notifications.
+ * @returns {string} - The notification comment message.
+ */
+function composeNotificationComment(issue, skipLabelName) {
+  if (!issue || !issue.title) {
+    return `Could not determine healthcheck status because the issue is missing some fields: ${JSON.stringify(issue)}`;
+  }
+  const { enterprise_slug, last_healthcheck_date, assignees = [] } = issue;
+
+  let baseMessage;
+
+  const healthcheckDate = new Date(last_healthcheck_date);
+  if (last_healthcheck_date == null || isNaN(healthcheckDate)) {
+    baseMessage =
+      `No healthchecks were found for the issue titled '${issue.title}'. `
+      + "This may reflect a mismatch between the issue title and the healthcheck's YAML frontmatter.";
+  } else {
+    const now = new Date();
+    const ageInDays = Math.floor((now - healthcheckDate) / (1000 * 60 * 60 * 24));
+
+    const formattedDate = new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(healthcheckDate);
+
+    baseMessage = `The enterprise ${issue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
+  }
+
+  const suppressionAdvice = `If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}`;
+  const finalMessage = `${baseMessage} ${suppressionAdvice}`;
+
+  if (assignees.length > 0) {
+    // build assigneeMentions as a space-separated list of @handles
+    const assigneeMentions = assignees.map((assignee) => `@${assignee}`).join(' ');
+    return `Heads-up ${assigneeMentions}! ${finalMessage}.`;
+  } else {
+    return finalMessage;
+  }
+}
+
+/**
  * Removes a label from a GitHub issue, or logs the intended action if dry run is enabled.
  * Handles errors gracefully and returns a status object.
  *
- * @param {object} octokit - An authenticated Octokit REST client.
- * @param {string} repoOwner - The owner of the repository.
- * @param {string} repoName - The name of the repository.
- * @param {Object} enterpriseIssue - The issue object containing issue details.
- * @param {boolean} [isDryRun=false] - If true, logs the intended action instead of performing it.
- * @param {number} [ratePauseSec=1] - Number of seconds to pause after removing the label.
+ * @param {object} context - An object containing octokit, repoOwner, and repoName.
+ * @param {Object} issue - The issue object containing issue details.
  * @param {string} labelName - The name of the label to remove.
+ * @param {boolean} [isDryRun=true] - If true, logs the intended action instead of performing it.
  * @returns {Promise<{ok: boolean, message: string}>} - An object indicating success and a message.
  */
-async function unlabelIssue(octokit, repoOwner, repoName, enterpriseIssue, isDryRun = true, labelName) {
-  const baseMessage = `\`${labelName}\` from issue #${enterpriseIssue.number} in \`${repoOwner}/${repoName}\` (${enterpriseIssue.title})`;
+async function unlabelIssue(context, issue, labelName, isDryRun = true) {
+  const baseMessage = `\`${labelName}\` from issue #${issue.number} in \`${context.repoOwner}/${context.repoName}\` (${issue.title})`;
   let returnMessage = '';
   let result = false;
 
@@ -101,10 +96,10 @@ async function unlabelIssue(octokit, repoOwner, repoName, enterpriseIssue, isDry
       returnMessage = `[DRY-RUN] Would have removed label ${baseMessage}`;
     } else {
       returnMessage = `Removing label ${baseMessage}`;
-      await octokit.rest.issues.removeLabel({
-        owner: repoOwner,
-        repo: repoName,
-        issue_number: enterpriseIssue.number,
+      await context.octokit.rest.issues.removeLabel({
+        owner: context.repoOwner,
+        repo: context.repoName,
+        issue_number: issue.number,
         name: labelName,
       });
     }

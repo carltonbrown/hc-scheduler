@@ -17,23 +17,27 @@ function cloneRepo(token, repo, targetDir) {
 }
 
 /**
- * Maps issues to a more convenient data structure, adding skip_healthcheck_notification based on the skipLabel.
+ * Maps issues to a more convenient data structure, adding skip_labeled_since using a provided closure.
  * @param {Array} issues - Array of issue objects.
- * @param {string} skipLabel - The label to check for skipping healthchecks.
- * @returns {Array} - Array of mapped issue objects.
+ * @param {string} skipLabelName - The label to check for skipping healthchecks.
+ * @param {function} getLabeledDateFn - A function that takes an issue and returns a Promise<Date|null>.
+ * @returns {Promise<Array>} - Promise resolving to an array of mapped issue objects.
  */
-function mapCheckableIssues(issues, skipLabel) {
-  return issues.map((issue) => {
-    const hasSkipLabel = issue.labels && issue.labels.includes(skipLabel);
-    return {
-      number: issue.number,
-      title: issue.title,
-      assignees: issue.assignees,
-      labels: issue.labels,
-      url: issue.url,
-      skip_healthcheck_notification: hasSkipLabel
-    };
-  });
+async function mapCheckableIssues(issues, skipLabelName, getLabeledDateCallback) {
+  return Promise.all(
+    issues.map(async (issue) => {
+      const hasSkipLabel = issue.labels && issue.labels.includes(skipLabelName);
+      let skip_labeled_since = null;
+      if (hasSkipLabel && getLabeledDateCallback) {
+        skip_labeled_since = await getLabeledDateCallback(issue);
+        console.log(`Issue #${issue.number} - \`${issue.title}\` has been labeled with ${skipLabelName} since ${skip_labeled_since}`);
+      }
+      return {
+        ...issue,
+        skip_labeled_since
+      };
+    })
+  );
 }
 
 async function fetchIssuesFromV2Project(octokit, org, projectNumber, issueStatus = "Active", issueState = "OPEN") {
@@ -146,14 +150,14 @@ async function fetchIssuesFromV2Project(octokit, org, projectNumber, issueStatus
  * @param {string} labelName - The label to search for.
  * @returns {Promise<Date|null>} - The Date when the label was added, or null if not found.
  */
-async function getIssueLabeledDate(octokit, owner, repo, issueNumber, labelName) {
+async function getIssueLabeledDate(context, issueNumber, labelName) {
   const per_page = 100;
   let page = 1;
   let result;
   while (true) {
-    const { data: events } = await octokit.rest.issues.listEventsForTimeline({
-      owner,
-      repo,
+    const { data: events } = await context.octokit.rest.issues.listEventsForTimeline({
+      owner: context.repoOwner,
+      repo: context.repoName,
       issue_number: issueNumber,
       per_page,
       page,
