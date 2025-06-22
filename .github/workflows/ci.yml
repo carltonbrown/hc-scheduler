@@ -1,12 +1,11 @@
 name: CI
 
 on:
-  push:
   pull_request:
 
 jobs:
   lint:
-    name: Lint
+    name: ESLint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -32,7 +31,7 @@ jobs:
         run: npm run lint
 
   test:
-    name: Test
+    name: Jest unit tests
     runs-on: ubuntu-latest
     needs: lint
     steps:
