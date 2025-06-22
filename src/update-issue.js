@@ -50,7 +50,7 @@ function composeNotificationComment(issue, skipLabelName) {
   const healthcheckDate = new Date(last_healthcheck_date);
   if (last_healthcheck_date == null || isNaN(healthcheckDate)) {
     baseMessage = 
-      `No healthchecks were found for the issue titled '${issue.title}'
+      `No healthchecks were found for the issue titled \`${issue.title}\`
     This may reflect a mismatch between the issue title and the healthcheck's YAML frontmatter.
     To fix this, ensure the next healthcheck frontmatter matches the issue, or update the title of ${issue.url}`;
     } else {
@@ -67,7 +67,7 @@ function composeNotificationComment(issue, skipLabelName) {
   }
 
   const suppressionAdvice = `
-    If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}.
+    If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}
     If the issue should never get healthchecks, close the issue.
     If you think the issue is mis-assigned, ensure that the right people are assigned`;
 
