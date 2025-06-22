@@ -72,12 +72,12 @@ async function run() {
       makeLabeledDateCallback(repoApiContext, skipLabelName)
     );
 
-    // Relate healthcheck files to issue objects
+    // Relate near-overdue healthcheck files to their corresponding issue objects
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
-    const overdueIssues = findOverdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
-    console.log(`Found ${overdueIssues.length} issues with overdue healthchecks.`);
+    const nearOverdueIssues = findOverdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+    console.log(`Found ${nearOverdueIssues.length} issues with healthchecks over ${maxStalenessInDays} days old.`);
 
-    for (const issue of overdueIssues) {
+    for (const issue of nearOverdueIssues) {
       // Unlabel the skip notification label if it was created >30 days ago.
       if (issue.skip_labeled_since) {
         const now = new Date();
