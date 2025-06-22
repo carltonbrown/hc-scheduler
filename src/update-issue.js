@@ -10,11 +10,12 @@ async function addIssueComment(repoApiContext, issue, skipLabelName, isDryRun = 
   let result = false;
   let returnMessage = '';
   const notificationComment = composeNotificationComment(issue, skipLabelName);
-  const issueDescription = `#${issue.number} ${issue.title} in ${repoApiContext.repoOwner}/${repoApiContext.repoName}: ${notificationComment}`;
+  const debugMessage = `#${issue.number} \'${issue.title}\' in \'${repoApiContext.repoOwner}/${repoApiContext.repoName}\':
+    ${notificationComment}`;
 
   try {
     if (isDryRun) {
-      returnMessage = `[DRY-RUN] Would have commented on issue ${issueDescription}`;
+      returnMessage = `[DRY-RUN] Would have commented on issue ${debugMessage}`;
     } else {
       await repoApiContext.octokit.rest.issues.createComment({
         owner: repoApiContext.repoOwner,
@@ -23,11 +24,11 @@ async function addIssueComment(repoApiContext, issue, skipLabelName, isDryRun = 
         body: notificationComment,
       });
 
-      returnMessage = `Commented on issue ${issueDescription}`;
+      returnMessage = `Commented on issue: ${debugMessage}`;
     }
     result = true;
   } catch (error) {
-    returnMessage = `Failed to comment issue ${issueDescription} - ${error.message}`;
+    returnMessage = `Failed to add comment to ${issue.url} - ${error.message}`;
   }
   return { ok: result, message: returnMessage };
 }
@@ -62,15 +63,16 @@ function composeNotificationComment(issue, skipLabelName) {
       day: 'numeric',
     }).format(healthcheckDate);
 
-    baseMessage = `The enterprise ${issue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
+    baseMessage = `The enterprise \'${issue.title}\' is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
   }
 
-    const suppressionAdvice =
-        `If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}.
-      If the issue should never get healthchecks, close the issue.
-      If you think the issue is mis-assigned, ensure that the right people are assigned`;
+  const suppressionAdvice = `
+    If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}.
+    If the issue should never get healthchecks, close the issue.
+    If you think the issue is mis-assigned, ensure that the right people are assigned`;
 
-    const finalMessage = `${baseMessage} ${suppressionAdvice}`;
+  const finalMessage = `${baseMessage}
+    ${suppressionAdvice}`;
 
   if (assignees.length > 0) {
     // build assigneeMentions as a space-separated list of @handles

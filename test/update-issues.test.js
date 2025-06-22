@@ -138,7 +138,7 @@ describe('addIssueComment', () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.message).toContain('Failed to comment issue');
+    expect(result.message).toContain('Failed to add comment to');
     expect(result.message).toContain(errorMsg);
   });
 });

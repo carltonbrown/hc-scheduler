@@ -34384,11 +34384,12 @@ async function addIssueComment(repoApiContext, issue, skipLabelName, isDryRun = 
   let result = false;
   let returnMessage = '';
   const notificationComment = composeNotificationComment(issue, skipLabelName);
-  const issueDescription = `#${issue.number} ${issue.title} in ${repoApiContext.repoOwner}/${repoApiContext.repoName}: ${notificationComment}`;
+  const debugMessage = `#${issue.number} \'${issue.title}\' in \'${repoApiContext.repoOwner}/${repoApiContext.repoName}\':
+    ${notificationComment}`;
 
   try {
     if (isDryRun) {
-      returnMessage = `[DRY-RUN] Would have commented on issue ${issueDescription}`;
+      returnMessage = `[DRY-RUN] Would have commented on issue ${debugMessage}`;
     } else {
       await repoApiContext.octokit.rest.issues.createComment({
         owner: repoApiContext.repoOwner,
@@ -34397,11 +34398,11 @@ async function addIssueComment(repoApiContext, issue, skipLabelName, isDryRun = 
         body: notificationComment,
       });
 
-      returnMessage = `Commented on issue ${issueDescription}`;
+      returnMessage = `Commented on issue: ${debugMessage}`;
     }
     result = true;
   } catch (error) {
-    returnMessage = `Failed to comment issue ${issueDescription} - ${error.message}`;
+    returnMessage = `Failed to add comment to ${issue.url} - ${error.message}`;
   }
   return { ok: result, message: returnMessage };
 }
@@ -34422,10 +34423,11 @@ function composeNotificationComment(issue, skipLabelName) {
 
   const healthcheckDate = new Date(last_healthcheck_date);
   if (last_healthcheck_date == null || isNaN(healthcheckDate)) {
-    baseMessage =
-      `No healthchecks were found for the issue titled '${issue.title}'. `
-      + "This may reflect a mismatch between the issue title and the healthcheck's YAML frontmatter.";
-  } else {
+    baseMessage = 
+      `No healthchecks were found for the issue titled '${issue.title}'
+    This may reflect a mismatch between the issue title and the healthcheck's YAML frontmatter.
+    To fix this, ensure the next healthcheck frontmatter matches the issue, or update the title of ${issue.url}`;
+    } else {
     const now = new Date();
     const ageInDays = Math.floor((now - healthcheckDate) / (1000 * 60 * 60 * 24));
 
@@ -34435,11 +34437,16 @@ function composeNotificationComment(issue, skipLabelName) {
       day: 'numeric',
     }).format(healthcheckDate);
 
-    baseMessage = `The enterprise ${issue.title} is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
+    baseMessage = `The enterprise \'${issue.title}\' is due for a health check because its last check was ${ageInDays} days ago on ${formattedDate}.`;
   }
 
-  const suppressionAdvice = `If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}`;
-  const finalMessage = `${baseMessage} ${suppressionAdvice}`;
+  const suppressionAdvice = `
+    If you'd like to suppress this message temporarily, add the label \`${skipLabelName}\` to the issue ${issue.url}.
+    If the issue should never get healthchecks, close the issue.
+    If you think the issue is mis-assigned, ensure that the right people are assigned`;
+
+  const finalMessage = `${baseMessage}
+    ${suppressionAdvice}`;
 
   if (assignees.length > 0) {
     // build assigneeMentions as a space-separated list of @handles
@@ -36475,12 +36482,12 @@ async function run() {
       makeLabeledDateCallback(repoApiContext, skipLabelName)
     );
 
-    // Relate healthcheck files to issue objects
+    // Relate near-overdue healthcheck files to their corresponding issue objects
     console.log(`Finding customer issues where the most recent healthcheck is greater than ${maxStalenessInDays} days old`);
-    const overdueIssues = findOverdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
-    console.log(`Found ${overdueIssues.length} issues with overdue healthchecks.`);
+    const nearOverdueIssues = findOverdueIssues(allHealthchecks, checkableIssues, maxStalenessInDays);
+    console.log(`Found ${nearOverdueIssues.length} issues with healthchecks over ${maxStalenessInDays} days old.`);
 
-    for (const issue of overdueIssues) {
+    for (const issue of nearOverdueIssues) {
       // Unlabel the skip notification label if it was created >30 days ago.
       if (issue.skip_labeled_since) {
         const now = new Date();
